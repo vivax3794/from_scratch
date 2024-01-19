@@ -19,7 +19,7 @@
       {
         devShells.default = mkShell {
             buildInputs = [
-                make
+                gnumake
 
                 # Rust compiler
                 ( rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
