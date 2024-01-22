@@ -27,6 +27,7 @@
                 }) )
                 mold
                 cargo-nextest
+                llvmPackages_15.libllvm
             ];
         };
     }
