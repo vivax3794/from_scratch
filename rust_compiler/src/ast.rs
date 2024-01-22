@@ -28,7 +28,7 @@ pub enum Type {
 
 #[derive(Debug)]
 pub enum CType {
-    NamedInt(u8),
+    Int(u8),
 }
 
 #[derive(Debug)]
