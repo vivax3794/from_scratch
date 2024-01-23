@@ -15,7 +15,7 @@ clean:
 	rm -rf bin/
 
 ${RUST_COMPILER}: FORCE
-	cd ${RUST_COMPILER_PROJECT}; mold -run cargo build
+	cd ${RUST_COMPILER_PROJECT}; cargo build
 
 bin:
 	mkdir bin

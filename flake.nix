@@ -25,9 +25,13 @@
                 ( rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
                     extensions = ["rust-src" "llvm-tools-preview" "rust-analyzer"];
                 }) )
-                mold
                 cargo-nextest
+
                 llvmPackages_15.libllvm
+                clang
+
+                libffi
+                libxml2
             ];
         };
     }

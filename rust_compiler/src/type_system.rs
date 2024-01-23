@@ -11,12 +11,28 @@ struct TypedExpression {
     type_: Type,
 }
 
+impl TypedExpression {
+    fn int(&self) -> &ir::IntExpression {
+        match &self.expr {
+            ir::Expression::Int(expr) => expr,
+        }
+    }
+}
+
 impl Type {
     fn int_width(&self) -> usize {
         match self {
             Self::Range(min, max) => match () {
-                _ if *min >= u8::MIN as isize && *max <= u8::MAX as isize => 8,
-                _ if *min >= u16::MIN as isize && *max <= u16::MAX as isize => 16,
+                _ if *min >= u8::MIN as isize
+                    && *max <= u8::MAX as isize =>
+                {
+                    8
+                }
+                _ if *min >= u16::MIN as isize
+                    && *max <= u16::MAX as isize =>
+                {
+                    16
+                }
                 // TODO: More ranges
                 _ => panic!("Invalid range"),
             },
@@ -32,7 +48,9 @@ impl Type {
 
     fn is_sub(&self, other: &Type) -> bool {
         match (self, other) {
-            (Self::Range(smin, smax), Self::Range(omin, omax)) => smin <= omin && omax <= smax,
+            (Self::Range(smin, smax), Self::Range(omin, omax)) => {
+                smin <= omin && omax <= smax
+            }
             _ => false,
         }
     }
@@ -56,13 +74,21 @@ impl TypeResolver {
         )
     }
 
-    fn resolve_declaration(&mut self, decl: &ast::Declaration) -> ir::Declaration {
+    fn resolve_declaration(
+        &mut self,
+        decl: &ast::Declaration,
+    ) -> ir::Declaration {
         match decl {
-            ast::Declaration::Function(function) => self.resolve_function(function),
+            ast::Declaration::Function(function) => {
+                self.resolve_function(function)
+            }
         }
     }
 
-    fn resolve_function(&mut self, func: &ast::FunctionDeclration) -> ir::Declaration {
+    fn resolve_function(
+        &mut self,
+        func: &ast::FunctionDeclration,
+    ) -> ir::Declaration {
         match func {
             ast::FunctionDeclration::ExposedFunction {
                 name,
@@ -87,13 +113,20 @@ impl TypeResolver {
         }
     }
 
-    fn resolve_statement(&mut self, stmt: &ast::Statement) -> ir::Statement {
+    fn resolve_statement(
+        &mut self,
+        stmt: &ast::Statement,
+    ) -> ir::Statement {
         match stmt {
             ast::Statement::Return(expr) => {
-                let return_type = self.return_type.as_ref().unwrap().clone();
+                let return_type =
+                    self.return_type.as_ref().unwrap().clone();
                 let expr = self.resolve_expression(expr);
                 if !return_type.is_sub(&expr.type_) {
-                    panic!("Incompatible types, {:?} and {:?}", return_type, expr.type_);
+                    panic!(
+                        "Incompatible types, {:?} and {:?}",
+                        return_type, expr.type_
+                    );
                 }
 
                 ir::Statement::Return(expr.expr)
@@ -101,16 +134,21 @@ impl TypeResolver {
         }
     }
 
-    fn resolve_expression(&mut self, expr: &ast::Expression) -> TypedExpression {
+    fn resolve_expression(
+        &mut self,
+        expr: &ast::Expression,
+    ) -> TypedExpression {
         match expr {
             ast::Expression::Literal(lit) => match lit {
                 ast::Literal::Int(value) => {
                     let value = *value;
                     let type_ = Type::Range(value, value);
-                    let expr = ir::Expression::LiteralInt {
-                        value,
-                        width: type_.int_width(),
-                    };
+                    let expr = ir::Expression::Int(
+                        ir::IntExpression::Literal {
+                            value,
+                            width: type_.int_width(),
+                        },
+                    );
                     TypedExpression { expr, type_ }
                 }
             },
@@ -120,8 +158,12 @@ impl TypeResolver {
     fn resolve_type(&mut self, type_: &ast::Type) -> Type {
         match type_ {
             ast::Type::Named(name) => match name.0.as_ref() {
-                "u8" => Type::Range(u8::MIN as isize, u8::MAX as isize),
-                "u16" => Type::Range(u16::MIN as isize, u16::MAX as isize),
+                "u8" => {
+                    Type::Range(u8::MIN as isize, u8::MAX as isize)
+                }
+                "u16" => {
+                    Type::Range(u16::MIN as isize, u16::MAX as isize)
+                }
                 name => panic!("Unknown name {name}"),
             },
         }

@@ -10,7 +10,7 @@ pub enum Declaration {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FunctionName {
     Mangled(Identifier),
     Named(Box<str>),
@@ -31,11 +31,22 @@ pub enum Statement {
 
 #[derive(Debug)]
 pub enum Expression {
-    LiteralInt { value: isize, width: usize },
+    Int(IntExpression),
+}
+
+#[derive(Debug)]
+pub enum IntExpression {
+    Literal { value: isize, width: usize },
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Identifier(pub usize);
+
+impl FunctionName {
+    pub fn str(&self) -> Box<str> {
+        self.clone().into()
+    }
+}
 
 impl From<FunctionName> for Box<str> {
     fn from(value: FunctionName) -> Self {

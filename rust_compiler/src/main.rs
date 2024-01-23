@@ -24,9 +24,31 @@ fn build(input_file: &Path, output_file: &Path) {
     let mut type_resolver = type_system::TypeResolver::new();
     let ir = type_resolver.resolve_file(&ast);
 
-    dbg!(ir);
+    let context = inkwell::context::Context::create();
+    let mut gen = codegen::CodeGen::new(&context);
+    gen.generate_file(&ir);
 
-    todo!()
+    let llvm_ir = tempfile::NamedTempFile::new().unwrap();
+    let object_file = tempfile::NamedTempFile::new().unwrap();
+    gen.save_to_file(llvm_ir.path());
+    std::process::Command::new("llc")
+        .args([
+            llvm_ir.path().to_str().unwrap(),
+            "-filetype=obj",
+            "-o",
+            object_file.path().to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    std::process::Command::new("clang")
+        .args([
+            object_file.path().to_str().unwrap(),
+            "-no-pie",
+            "-o",
+            output_file.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
 }
 
 #[derive(Parser)]
