@@ -11,7 +11,7 @@ build: ${RUST_COMPILER}
 test: test_compiler
 
 clean:
-	rm -rf ${RUST_COMPILER_PROJECT}/target
+	cd ${RUST_COMPILER_PROJECT}; cargo clean
 	rm -rf bin/
 
 ${RUST_COMPILER}: FORCE

@@ -10,25 +10,14 @@ pub enum Declaration {
 pub enum FunctionDeclration {
     ExposedFunction {
         name: Ident,
-        return_type: VToCType,
+        return_type: Type,
         body: Body,
     },
 }
 
 #[derive(Debug)]
-pub struct VToCType {
-    pub viv_type: Type,
-    pub c_type: CType,
-}
-
-#[derive(Debug)]
 pub enum Type {
     Named(Ident),
-}
-
-#[derive(Debug)]
-pub enum CType {
-    Int(u8),
 }
 
 #[derive(Debug)]

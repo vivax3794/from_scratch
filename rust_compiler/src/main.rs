@@ -8,6 +8,7 @@ mod ast;
 mod codegen;
 mod ir;
 mod parser;
+mod type_system;
 
 // REMMEMBER! PROTOTYPE!
 // This is the bootstrap compiler!!!
@@ -19,7 +20,11 @@ mod parser;
 fn build(input_file: &Path, output_file: &Path) {
     let content = std::fs::read_to_string(input_file).unwrap();
     let ast = parser::parse(&content);
-    dbg!(ast);
+
+    let mut type_resolver = type_system::TypeResolver::new();
+    let ir = type_resolver.resolve_file(&ast);
+
+    dbg!(ir);
 
     todo!()
 }

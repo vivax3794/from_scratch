@@ -42,7 +42,7 @@ fn parse_function_exposed(input: &str) -> Result<ast::FunctionDeclration> {
     let (input, _) = tag("expose")(input)?;
     let (input, name) = preceded(multispace1, parse_ident)(input)?;
     let (input, _) = preceded(multispace0, tag("()"))(input)?;
-    let (input, return_type) = preceded(multispace0, parse_vc_type)(input)?;
+    let (input, return_type) = preceded(multispace0, parse_type)(input)?;
     let (input, body) = preceded(multispace0, parse_body)(input)?;
 
     Ok((
@@ -55,27 +55,9 @@ fn parse_function_exposed(input: &str) -> Result<ast::FunctionDeclration> {
     ))
 }
 
-fn parse_vc_type(input: &str) -> Result<ast::VToCType> {
-    let (input, type_) = parse_type(input)?;
-    let (input, _) = tuple((multispace0, tag(":"), multispace0))(input)?;
-    let (input, c_type) = parse_ctype(input)?;
-
-    Ok((
-        input,
-        ast::VToCType {
-            viv_type: type_,
-            c_type,
-        },
-    ))
-}
-
 fn parse_type(input: &str) -> Result<ast::Type> {
     let (input, name) = parse_ident(input)?;
     Ok((input, ast::Type::Named(name)))
-}
-fn parse_ctype(input: &str) -> Result<ast::CType> {
-    let (input, width) = preceded(tag("u"), digit1)(input)?;
-    Ok((input, ast::CType::Int(width.parse().unwrap())))
 }
 
 fn parse_body(input: &str) -> Result<ast::Body> {
