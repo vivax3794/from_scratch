@@ -2,7 +2,8 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{
-        alpha1, alphanumeric1, digit1, multispace0, multispace1, space0, space1,
+        alpha1, alphanumeric1, digit1, multispace0, multispace1,
+        space0, space1,
     },
     combinator::{eof, map, recognize},
     multi::many0,
@@ -14,13 +15,20 @@ type Result<'a, T> = IResult<&'a str, T>;
 
 use crate::ast;
 
+enum Operator {
+    Prefix(&'static str, ast::PrefixOp),
+}
+
 pub fn parse(content: &str) -> ast::File {
     parse_file(content).unwrap().1
 }
 
 fn parse_file(input: &str) -> Result<ast::File> {
-    let (input, declarations) =
-        many0(delimited(multispace0, parse_declaration, multispace0))(input)?;
+    let (input, declarations) = many0(delimited(
+        multispace0,
+        parse_declaration,
+        multispace0,
+    ))(input)?;
     let file = ast::File(declarations.into_boxed_slice());
 
     let (input, _) = eof(input)?;
@@ -38,11 +46,14 @@ fn parse_function(input: &str) -> Result<ast::FunctionDeclration> {
     parse_function_exposed(input)
 }
 
-fn parse_function_exposed(input: &str) -> Result<ast::FunctionDeclration> {
+fn parse_function_exposed(
+    input: &str,
+) -> Result<ast::FunctionDeclration> {
     let (input, _) = tag("expose")(input)?;
     let (input, name) = preceded(multispace1, parse_ident)(input)?;
     let (input, _) = preceded(multispace0, tag("()"))(input)?;
-    let (input, return_type) = preceded(multispace0, parse_type)(input)?;
+    let (input, return_type) =
+        preceded(multispace0, parse_type)(input)?;
     let (input, body) = preceded(multispace0, parse_body)(input)?;
 
     Ok((
@@ -75,13 +86,19 @@ fn parse_statement(input: &str) -> Result<ast::Statement> {
 
 fn parse_return(input: &str) -> Result<ast::Statement> {
     let (input, _) = terminated(tag("return"), multispace1)(input)?;
-    let (input, expression) = terminated(parse_expression, pair(multispace0, tag(";")))(input)?;
+    let (input, expression) = terminated(
+        parse_expression,
+        pair(multispace0, tag(";")),
+    )(input)?;
     Ok((input, ast::Statement::Return(expression)))
 }
 
 fn parse_assert(input: &str) -> Result<ast::Statement> {
     let (input, _) = terminated(tag("assert"), multispace1)(input)?;
-    let (input, expression) = terminated(parse_expression, pair(multispace0, tag(";")))(input)?;
+    let (input, expression) = terminated(
+        parse_expression,
+        pair(multispace0, tag(";")),
+    )(input)?;
     Ok((input, ast::Statement::Assert(expression)))
 }
 
@@ -92,7 +109,9 @@ fn parse_expression(input: &str) -> Result<ast::Expression> {
 
 fn parse_literal(input: &str) -> Result<ast::Literal> {
     let (input, value) = alt((
-        map(digit1, |val: &str| ast::Literal::Int(val.parse().unwrap())),
+        map(digit1, |val: &str| {
+            ast::Literal::Int(val.parse().unwrap())
+        }),
         map(tag("false"), |_| ast::Literal::Bool(false)),
         map(tag("true"), |_| ast::Literal::Bool(true)),
     ))(input)?;
@@ -100,6 +119,9 @@ fn parse_literal(input: &str) -> Result<ast::Literal> {
 }
 
 fn parse_ident(input: &str) -> Result<ast::Ident> {
-    let (input, ident) = recognize(pair(alpha1, many0(alt((tag("_"), alphanumeric1)))))(input)?;
+    let (input, ident) = recognize(pair(
+        alpha1,
+        many0(alt((tag("_"), alphanumeric1))),
+    ))(input)?;
     Ok((input, ast::Ident(ident.into())))
 }

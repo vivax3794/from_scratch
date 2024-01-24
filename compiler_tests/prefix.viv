@@ -1,0 +1,6 @@
+expose main() u8 {
+    assert !false;
+    assert !!true;
+
+    return 0;
+}
