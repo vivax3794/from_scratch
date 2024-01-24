@@ -35,6 +35,12 @@ pub enum Statement {
 #[derive(Debug)]
 pub enum Expression {
     Literal(Literal),
+    Prefix(PrefixOp, Box<Expression>),
+}
+
+#[derive(Debug)]
+pub enum PrefixOp {
+    Not,
 }
 
 #[derive(Debug)]
