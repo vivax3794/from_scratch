@@ -28,10 +28,10 @@
                 cargo-nextest
 
                 llvmPackages_15.libllvm
-                clang
 
                 libffi
                 libxml2
+                gcc
             ];
         };
     }

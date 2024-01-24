@@ -19,6 +19,7 @@ pub enum FunctionName {
 #[derive(Debug)]
 pub enum Type {
     Int(usize),
+    Bool,
 }
 
 #[derive(Debug)]
@@ -27,16 +28,23 @@ pub struct Body(pub Box<[Statement]>);
 #[derive(Debug)]
 pub enum Statement {
     Return(Expression),
+    Assert(BoolExpression),
 }
 
 #[derive(Debug)]
 pub enum Expression {
     Int(IntExpression),
+    Bool(BoolExpression),
 }
 
 #[derive(Debug)]
 pub enum IntExpression {
     Literal { value: isize, width: usize },
+}
+
+#[derive(Debug)]
+pub enum BoolExpression {
+    Literal(bool),
 }
 
 #[derive(Debug, Clone, Copy)]

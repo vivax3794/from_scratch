@@ -40,7 +40,7 @@ fn build(input_file: &Path, output_file: &Path) {
         ])
         .status()
         .unwrap();
-    std::process::Command::new("clang")
+    std::process::Command::new("gcc")
         .args([
             object_file.path().to_str().unwrap(),
             "-no-pie",

@@ -29,6 +29,7 @@ pub struct Body(pub Box<[Statement]>);
 #[derive(Debug)]
 pub enum Statement {
     Return(Expression),
+    Assert(Expression),
 }
 
 #[derive(Debug)]
@@ -39,4 +40,5 @@ pub enum Expression {
 #[derive(Debug)]
 pub enum Literal {
     Int(isize),
+    Bool(bool),
 }
