@@ -75,7 +75,7 @@ impl TypeResolver {
     pub fn resolve_file(&mut self, file: &ast::File) -> ir::File {
         ir::File(
             file.0
-                .into_iter()
+                .iter()
                 .map(|decl| self.resolve_declaration(decl))
                 .collect(),
         )
