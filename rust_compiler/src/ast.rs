@@ -38,7 +38,7 @@ pub enum Expression {
     Prefix(PrefixOp, Box<Expression>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum PrefixOp {
     Not,
 }

@@ -136,6 +136,10 @@ impl<'ctx> CodeGen<'ctx> {
             ir::BoolExpression::Literal(value) => {
                 self.context.bool_type().const_int(*value as u64, false)
             }
+            ir::BoolExpression::Not(expr) => {
+                let value = self.generate_bool_expression(expr);
+                self.builder.build_not(value, "Bool_Not")
+            }
         }
     }
 }

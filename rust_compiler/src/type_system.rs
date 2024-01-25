@@ -150,6 +150,18 @@ impl TypeResolver {
                     TypedExpression { expr, type_ }
                 }
             },
+            ast::Expression::Prefix(op, expr) => {
+                let expr = self.resolve_expression(expr);
+                match op {
+                    ast::PrefixOp::Not => {
+                        let expr = ir::BoolExpression::Not(Box::new(expr.bool()));
+                        TypedExpression {
+                            expr: ir::Expression::Bool(expr),
+                            type_: Type::Boolean,
+                        }
+                    }
+                }
+            }
         }
     }
 

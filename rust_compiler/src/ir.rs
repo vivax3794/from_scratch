@@ -45,6 +45,7 @@ pub enum IntExpression {
 #[derive(Debug)]
 pub enum BoolExpression {
     Literal(bool),
+    Not(Box<BoolExpression>),
 }
 
 #[derive(Debug, Clone, Copy)]
