@@ -17,10 +17,21 @@ use crate::ast;
 
 enum Operator {
     Prefix(&'static str, ast::PrefixOp),
+    Comparison(Vec<(&'static str, ast::Comparisson)>),
 }
 
 lazy_static! {
-    static ref OPERATORS: Vec<Operator> = vec![Operator::Prefix("!", ast::PrefixOp::Not)];
+    static ref OPERATORS: Vec<Operator> = vec![
+        Operator::Comparison(vec![
+            ("==", ast::Comparisson::Eq),
+            ("<", ast::Comparisson::Lt),
+            (">", ast::Comparisson::Gt),
+            (">=", ast::Comparisson::Ge),
+            ("<=", ast::Comparisson::Le),
+            ("!=", ast::Comparisson::Ne),
+        ]),
+        Operator::Prefix("!", ast::PrefixOp::Not),
+    ];
 }
 
 pub fn parse(content: &str) -> ast::File {
@@ -112,6 +123,15 @@ fn parse_operator(level: usize) -> impl Fn(&str) -> Result<ast::Expression> {
                 }),
                 parse_operator(level + 1),
             ))(input),
+            Operator::Comparison(ops) => {
+                let (input, left) = parse_operator(level + 1)(input)?;
+                let op_parser = ops
+                    .iter()
+                    .map(|(op, val)| map(tag(*op), |_| *val))
+                    .reduce(|a, b| alt((a, b)))
+                    .unwrap();
+                todo!()
+            }
         }
     }
 }

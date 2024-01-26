@@ -36,6 +36,17 @@ pub enum Statement {
 pub enum Expression {
     Literal(Literal),
     Prefix(PrefixOp, Box<Expression>),
+    Comparison(Box<Expression>, Vec<(Comparisson, Box<Expression>)>),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Comparisson {
+    Eq,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+    Ne,
 }
 
 #[derive(Debug, Clone, Copy)]
