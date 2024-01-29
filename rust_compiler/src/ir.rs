@@ -46,21 +46,7 @@ pub enum IntExpression {
 pub enum BoolExpression {
     Literal(bool),
     Not(Box<BoolExpression>),
-    Comparison(IntExpression, Box<[(ComparissonOp, IntExpression)]>),
-}
-
-#[derive(Debug)]
-pub enum ComparissonOp {
-    Eq,
-    Ne,
-    Gts,
-    Lts,
-    Ges,
-    Les,
-    Gtu,
-    Ltu,
-    Geu,
-    Leu,
+    Comparison(IntExpression, Box<[(inkwell::IntPredicate, IntExpression)]>),
 }
 
 #[derive(Debug, Clone, Copy)]
