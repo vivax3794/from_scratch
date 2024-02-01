@@ -33,28 +33,20 @@ impl<'ctx> CodeGen<'ctx> {
         self.module.add_function("abort", abort_signature, None);
     }
 
-    fn int_type(&self, size: usize) -> inkwell::types::IntType<'ctx> {
+    fn int_type(&self, size: u8) -> inkwell::types::IntType<'ctx> {
         match size {
             8 => self.context.i8_type(),
             16 => self.context.i16_type(),
             32 => self.context.i32_type(),
             64 => self.context.i64_type(),
-            128 => self.context.i128_type(),
             _ => panic!("Invalid int width"),
         }
     }
 
-    fn llvm_type(
-        &self,
-        type_: &ir::Type,
-    ) -> inkwell::types::BasicTypeEnum<'ctx> {
+    fn llvm_type(&self, type_: &ir::Type) -> inkwell::types::BasicTypeEnum<'ctx> {
         match type_ {
-            ir::Type::Int(width) => {
-                self.int_type(*width).as_basic_type_enum()
-            }
-            ir::Type::Bool => {
-                self.context.bool_type().as_basic_type_enum()
-            }
+            ir::Type::Int(width) => self.int_type(*width).as_basic_type_enum(),
+            ir::Type::Bool => self.context.bool_type().as_basic_type_enum(),
         }
     }
 
@@ -74,15 +66,9 @@ impl<'ctx> CodeGen<'ctx> {
             } => {
                 let return_type = self.llvm_type(return_type);
                 let signature = return_type.fn_type(&[], false);
-                let function = self.module.add_function(
-                    &name.str(),
-                    signature,
-                    None,
-                );
+                let function = self.module.add_function(&name.str(), signature, None);
 
-                let entry_block = self
-                    .context
-                    .append_basic_block(function, "entry");
+                let entry_block = self.context.append_basic_block(function, "entry");
                 self.builder.position_at_end(entry_block);
                 for stmt in body.0.iter() {
                     self.generate_statement(stmt);
@@ -100,26 +86,17 @@ impl<'ctx> CodeGen<'ctx> {
             ir::Statement::Assert(expr) => {
                 let value = self.generate_bool_expression(expr);
 
-                let current_block =
-                    self.builder.get_insert_block().unwrap();
-                let fail_branch = self
+                let current_block = self.builder.get_insert_block().unwrap();
+                let fail_branch = self.context.insert_basic_block_after(current_block, "Fail");
+                let continue_branch = self
                     .context
-                    .insert_basic_block_after(current_block, "Fail");
-                let continue_branch =
-                    self.context.insert_basic_block_after(
-                        fail_branch,
-                        "Continue",
-                    );
+                    .insert_basic_block_after(fail_branch, "Continue");
 
-                self.builder.build_conditional_branch(
-                    value,
-                    continue_branch,
-                    fail_branch,
-                );
+                self.builder
+                    .build_conditional_branch(value, continue_branch, fail_branch);
 
                 self.builder.position_at_end(fail_branch);
-                let abort =
-                    self.module.get_function("abort").unwrap();
+                let abort = self.module.get_function("abort").unwrap();
                 self.builder.build_call(abort, &[], "Abort");
                 self.builder.build_unreachable();
 
@@ -133,12 +110,8 @@ impl<'ctx> CodeGen<'ctx> {
         expr: &ir::Expression,
     ) -> inkwell::values::BasicValueEnum<'ctx> {
         match expr {
-            ir::Expression::Int(expr) => self
-                .generate_int_expression(expr)
-                .as_basic_value_enum(),
-            ir::Expression::Bool(expr) => self
-                .generate_bool_expression(expr)
-                .as_basic_value_enum(),
+            ir::Expression::Int(expr) => self.generate_int_expression(expr).as_basic_value_enum(),
+            ir::Expression::Bool(expr) => self.generate_bool_expression(expr).as_basic_value_enum(),
         }
     }
 
@@ -159,17 +132,15 @@ impl<'ctx> CodeGen<'ctx> {
         expr: &ir::BoolExpression,
     ) -> inkwell::values::IntValue<'ctx> {
         match expr {
-            ir::BoolExpression::Literal(value) => self
-                .context
-                .bool_type()
-                .const_int(*value as u64, false),
+            ir::BoolExpression::Literal(value) => {
+                self.context.bool_type().const_int(*value as u64, false)
+            }
             ir::BoolExpression::Not(expr) => {
                 let value = self.generate_bool_expression(expr);
                 self.builder.build_not(value, "Bool_Not")
             }
             ir::BoolExpression::Comparison(left, chains) => {
-                let mut exprs =
-                    vec![self.generate_int_expression(left)];
+                let mut exprs = vec![self.generate_int_expression(left)];
                 let mut ops = vec![];
 
                 for (op, expr) in chains.iter() {

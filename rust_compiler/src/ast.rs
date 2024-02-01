@@ -56,6 +56,6 @@ pub enum PrefixOp {
 
 #[derive(Debug)]
 pub enum Literal {
-    Int(isize),
+    Int(i128),
     Bool(bool),
 }

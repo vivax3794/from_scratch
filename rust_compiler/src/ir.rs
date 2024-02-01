@@ -18,7 +18,7 @@ pub enum FunctionName {
 
 #[derive(Debug)]
 pub enum Type {
-    Int(usize),
+    Int(u8),
     Bool,
 }
 
@@ -40,21 +40,16 @@ pub enum Expression {
 #[derive(Debug)]
 pub enum IntExpression {
     Literal {
-        value: isize,
-        width: usize,
+        value: u64,
+        width: u8,
     },
     // These should not fail, these are for implicit conversitions
     // do not use these for user asked for conversions that might fail (i.e overflow)
     // cast a unsigned value to a higher width
-    CastWidthUnsigned {
-        value: Box<Expression>,
+    UpCastWidth {
+        value: Box<IntExpression>,
         target: u8,
-    },
-    // cast a signed value to a higher width.
-    CastWidthSigned {
-        value: Box<Expression>,
-        target: u8,
-        current: u8,
+        signed: bool,
     },
     // note: we do not need a unsigned to signed conversion as that can happen implicitly by just
     // using the unsigned value in the signed values place
