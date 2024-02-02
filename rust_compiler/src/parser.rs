@@ -25,11 +25,11 @@ lazy_static! {
     static ref OPERATORS: Vec<Operator> = vec![
         Operator::Comparison(vec![
             ("==", ast::Comparisson::Eq),
-            ("<", ast::Comparisson::Lt),
-            (">", ast::Comparisson::Gt),
             (">=", ast::Comparisson::Ge),
             ("<=", ast::Comparisson::Le),
             ("!=", ast::Comparisson::Ne),
+            ("<", ast::Comparisson::Lt),
+            (">", ast::Comparisson::Gt),
         ]),
         Operator::Prefix("!", ast::PrefixOp::Not),
     ];
@@ -128,13 +128,16 @@ fn parse_operator(
 ) -> impl Fn(&str) -> Result<ast::Expression> {
     move |input: &str| {
         let Some(operator) = OPERATORS.get(level) else {
-            return parse_literal(input);
+            return parse_group(input);
         };
 
         match operator {
             Operator::Prefix(value, op) => alt((
                 map(
-                    preceded(tag(*value), parse_operator(level)),
+                    preceded(
+                        terminated(tag(*value), space0),
+                        parse_operator(level),
+                    ),
                     |expr| {
                         ast::Expression::Prefix(*op, Box::new(expr))
                     },
@@ -251,6 +254,17 @@ where
         }
         _ => panic!(),
     }
+}
+
+fn parse_group(input: &str) -> Result<ast::Expression> {
+    alt((
+        delimited(
+            delimited(multispace0, tag("("), multispace0),
+            parse_expression,
+            delimited(multispace0, tag(")"), multispace0),
+        ),
+        parse_literal,
+    ))(input)
 }
 
 fn parse_literal(input: &str) -> Result<ast::Expression> {
