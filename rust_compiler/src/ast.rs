@@ -37,6 +37,13 @@ pub enum Expression {
     Literal(Literal),
     Prefix(PrefixOp, Box<Expression>),
     Comparison(Box<Expression>, Vec<(Comparisson, Box<Expression>)>),
+    Binary(Box<Expression>, BinaryOp, Box<Expression>),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BinaryOp {
+    Add,
+    Sub,
 }
 
 #[derive(Debug, Clone, Copy)]

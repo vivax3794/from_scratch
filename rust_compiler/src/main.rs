@@ -23,6 +23,7 @@ fn build(input_file: &Path, output_file: &Path) {
 
     let mut type_resolver = type_system::TypeResolver::new();
     let ir = type_resolver.resolve_file(&ast);
+    dbg!(&ir);
 
     let context = inkwell::context::Context::create();
     let mut gen = codegen::CodeGen::new(&context);
