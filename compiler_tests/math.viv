@@ -1,0 +1,8 @@
+expose main() u8 {
+    assert --5 == 5;
+    assert -1 != 255;
+    assert -5 < 10;
+    assert -1 < 200;
+
+    return 0;
+}

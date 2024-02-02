@@ -17,7 +17,7 @@ type Result<'a, T> = IResult<&'a str, T>;
 use crate::ast;
 
 enum Operator {
-    Prefix(&'static str, ast::PrefixOp),
+    Prefix(Vec<(&'static str, ast::PrefixOp)>),
     Comparison(Vec<(&'static str, ast::Comparisson)>),
 }
 
@@ -31,7 +31,10 @@ lazy_static! {
             ("<", ast::Comparisson::Lt),
             (">", ast::Comparisson::Gt),
         ]),
-        Operator::Prefix("!", ast::PrefixOp::Not),
+        Operator::Prefix(vec![
+            ("!", ast::PrefixOp::Not),
+            ("-", ast::PrefixOp::Neg)
+        ]),
     ];
 }
 
@@ -132,15 +135,32 @@ fn parse_operator(
         };
 
         match operator {
-            Operator::Prefix(value, op) => alt((
-                map(
-                    preceded(
-                        terminated(tag(*value), space0),
-                        parse_operator(level),
-                    ),
-                    |expr| {
-                        ast::Expression::Prefix(*op, Box::new(expr))
-                    },
+            Operator::Prefix(values) => alt((
+                to_alt(
+                    &values
+                        .iter()
+                        .map(|(value, op)| {
+                            move |input| {
+                                map(
+                                    preceded(
+                                        terminated(
+                                            tag(*value),
+                                            space0,
+                                        ),
+                                        parse_operator(level),
+                                    ),
+                                    |expr| {
+                                        ast::Expression::Prefix(
+                                            *op,
+                                            Box::new(expr),
+                                        )
+                                    },
+                                )(
+                                    input
+                                )
+                            }
+                        })
+                        .collect::<Vec<_>>(),
                 ),
                 parse_operator(level + 1),
             ))(input),

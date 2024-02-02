@@ -52,6 +52,7 @@ pub enum Comparisson {
 #[derive(Debug, Clone, Copy)]
 pub enum PrefixOp {
     Not,
+    Neg,
 }
 
 #[derive(Debug)]

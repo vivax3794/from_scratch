@@ -56,13 +56,17 @@ pub enum IntExpression {
     // (if the value could go into the negative range because of its range it will be cast to a
     // higher width first, like a u8 would be cast to a i16, but if the range is know to be 0-5 it
     // would just be a i8)
+    Neg(Box<IntExpression>),
 }
 
 #[derive(Debug)]
 pub enum BoolExpression {
     Literal(bool),
     Not(Box<BoolExpression>),
-    Comparison(IntExpression, Box<[(inkwell::IntPredicate, IntExpression)]>),
+    Comparison(
+        IntExpression,
+        Box<[(inkwell::IntPredicate, IntExpression)]>,
+    ),
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -1,7 +1,7 @@
 use crate::ast;
 use crate::ir;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 struct Range {
     min: i128,
     max: i128,
@@ -260,6 +260,22 @@ impl TypeResolver {
                         TypedExpression {
                             expr: ir::Expression::Bool(expr),
                             type_: Type::Boolean,
+                        }
+                    }
+                    ast::PrefixOp::Neg => {
+                        let (range, expr) = expr.int();
+                        let width = min_width_of_range(&range, true);
+                        let expr =
+                            cast_range_to_width(range, width, expr);
+
+                        let range = Range {
+                            min: -range.max,
+                            max: -range.min,
+                            width,
+                        };
+                        TypedExpression {
+                            type_: Type::Range(range),
+                            expr: ir::Expression::Int(expr),
                         }
                     }
                 }

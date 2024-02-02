@@ -170,6 +170,10 @@ impl<'ctx> CodeGen<'ctx> {
                     )
                 }
             }
+            ir::IntExpression::Neg(value) => {
+                let value = self.generate_int_expression(value);
+                self.builder.build_int_neg(value, "Negate value")
+            }
         }
     }
 
