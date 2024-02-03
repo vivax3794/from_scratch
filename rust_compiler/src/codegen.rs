@@ -43,10 +43,17 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
-    fn llvm_type(&self, type_: &ir::Type) -> inkwell::types::BasicTypeEnum<'ctx> {
+    fn llvm_type(
+        &self,
+        type_: &ir::Type,
+    ) -> inkwell::types::BasicTypeEnum<'ctx> {
         match type_ {
-            ir::Type::Int(width) => self.int_type(*width).as_basic_type_enum(),
-            ir::Type::Bool => self.context.bool_type().as_basic_type_enum(),
+            ir::Type::Int(width) => {
+                self.int_type(*width).as_basic_type_enum()
+            }
+            ir::Type::Bool => {
+                self.context.bool_type().as_basic_type_enum()
+            }
         }
     }
 
@@ -66,9 +73,15 @@ impl<'ctx> CodeGen<'ctx> {
             } => {
                 let return_type = self.llvm_type(return_type);
                 let signature = return_type.fn_type(&[], false);
-                let function = self.module.add_function(&name.str(), signature, None);
+                let function = self.module.add_function(
+                    &name.str(),
+                    signature,
+                    None,
+                );
 
-                let entry_block = self.context.append_basic_block(function, "entry");
+                let entry_block = self
+                    .context
+                    .append_basic_block(function, "entry");
                 self.builder.position_at_end(entry_block);
                 for stmt in body.0.iter() {
                     self.generate_statement(stmt);
@@ -86,17 +99,26 @@ impl<'ctx> CodeGen<'ctx> {
             ir::Statement::Assert(expr) => {
                 let value = self.generate_bool_expression(expr);
 
-                let current_block = self.builder.get_insert_block().unwrap();
-                let fail_branch = self.context.insert_basic_block_after(current_block, "Fail");
-                let continue_branch = self
+                let current_block =
+                    self.builder.get_insert_block().unwrap();
+                let fail_branch = self
                     .context
-                    .insert_basic_block_after(fail_branch, "Continue");
+                    .insert_basic_block_after(current_block, "Fail");
+                let continue_branch =
+                    self.context.insert_basic_block_after(
+                        fail_branch,
+                        "Continue",
+                    );
 
-                self.builder
-                    .build_conditional_branch(value, continue_branch, fail_branch);
+                self.builder.build_conditional_branch(
+                    value,
+                    continue_branch,
+                    fail_branch,
+                );
 
                 self.builder.position_at_end(fail_branch);
-                let abort = self.module.get_function("abort").unwrap();
+                let abort =
+                    self.module.get_function("abort").unwrap();
                 self.builder.build_call(abort, &[], "Abort");
                 self.builder.build_unreachable();
 
@@ -110,8 +132,12 @@ impl<'ctx> CodeGen<'ctx> {
         expr: &ir::Expression,
     ) -> inkwell::values::BasicValueEnum<'ctx> {
         match expr {
-            ir::Expression::Int(expr) => self.generate_int_expression(expr).as_basic_value_enum(),
-            ir::Expression::Bool(expr) => self.generate_bool_expression(expr).as_basic_value_enum(),
+            ir::Expression::Int(expr) => self
+                .generate_int_expression(expr)
+                .as_basic_value_enum(),
+            ir::Expression::Bool(expr) => self
+                .generate_bool_expression(expr)
+                .as_basic_value_enum(),
         }
     }
 
@@ -131,11 +157,17 @@ impl<'ctx> CodeGen<'ctx> {
             } => {
                 let value = self.generate_int_expression(value);
                 if *signed {
-                    self.builder
-                        .build_int_s_extend(value, self.int_type(*target), "Signed_Cast")
+                    self.builder.build_int_s_extend(
+                        value,
+                        self.int_type(*target),
+                        "Signed_Cast",
+                    )
                 } else {
-                    self.builder
-                        .build_int_z_extend(value, self.int_type(*target), "Unsigned_Cast")
+                    self.builder.build_int_z_extend(
+                        value,
+                        self.int_type(*target),
+                        "Unsigned_Cast",
+                    )
                 }
             }
             ir::IntExpression::Neg(value) => {
@@ -147,8 +179,21 @@ impl<'ctx> CodeGen<'ctx> {
                 let right = self.generate_int_expression(right);
 
                 match (op, signed) {
-                    (ir::IntBinaryOp::Add, _) => self.builder.build_int_add(left, right, "Add"),
-                    (ir::IntBinaryOp::Sub, _) => self.builder.build_int_sub(left, right, "Sub"),
+                    (ir::IntBinaryOp::Add, _) => {
+                        self.builder.build_int_add(left, right, "Add")
+                    }
+                    (ir::IntBinaryOp::Sub, _) => {
+                        self.builder.build_int_sub(left, right, "Sub")
+                    }
+                    (ir::IntBinaryOp::Mul, _) => {
+                        self.builder.build_int_mul(left, right, "Mul")
+                    }
+                    (ir::IntBinaryOp::FloorDivision, false) => self
+                        .builder
+                        .build_int_unsigned_div(left, right, "Div"),
+                    (ir::IntBinaryOp::FloorDivision, true) => self
+                        .builder
+                        .build_int_signed_div(left, right, "Div"),
                 }
             }
         }
@@ -159,23 +204,32 @@ impl<'ctx> CodeGen<'ctx> {
         expr: &ir::BoolExpression,
     ) -> inkwell::values::IntValue<'ctx> {
         match expr {
-            ir::BoolExpression::Literal(value) => {
-                self.context.bool_type().const_int(*value as u64, false)
-            }
+            ir::BoolExpression::Literal(value) => self
+                .context
+                .bool_type()
+                .const_int(*value as u64, false),
             ir::BoolExpression::Not(expr) => {
                 let value = self.generate_bool_expression(expr);
                 self.builder.build_not(value, "Bool_Not")
             }
             ir::BoolExpression::Comparison(left, chains) => {
                 let mut previous = self.generate_int_expression(left);
-                let mut result = self.context.bool_type().const_int(1, false);
+                let mut result =
+                    self.context.bool_type().const_int(1, false);
 
                 for (op, expr) in chains.iter() {
                     let expr = self.generate_int_expression(expr);
-                    let this_result =
-                        self.builder
-                            .build_int_compare(*op, previous, expr, "Comp_Result");
-                    result = self.builder.build_and(result, this_result, "Final_Result");
+                    let this_result = self.builder.build_int_compare(
+                        *op,
+                        previous,
+                        expr,
+                        "Comp_Result",
+                    );
+                    result = self.builder.build_and(
+                        result,
+                        this_result,
+                        "Final_Result",
+                    );
                     previous = expr;
                 }
 

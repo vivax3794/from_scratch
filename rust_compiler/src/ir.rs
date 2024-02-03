@@ -64,13 +64,18 @@ pub enum IntExpression {
 pub enum IntBinaryOp {
     Add,
     Sub,
+    Mul,
+    FloorDivision,
 }
 
 #[derive(Debug)]
 pub enum BoolExpression {
     Literal(bool),
     Not(Box<BoolExpression>),
-    Comparison(IntExpression, Box<[(inkwell::IntPredicate, IntExpression)]>),
+    Comparison(
+        IntExpression,
+        Box<[(inkwell::IntPredicate, IntExpression)]>,
+    ),
 }
 
 #[derive(Debug, Clone, Copy)]

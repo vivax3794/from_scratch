@@ -3,7 +3,8 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{
-        alpha1, alphanumeric1, digit1, multispace0, multispace1, space0, space1,
+        alpha1, alphanumeric1, digit1, multispace0, multispace1,
+        space0, space1,
     },
     combinator::{eof, map, opt, recognize},
     multi::many0,
@@ -31,8 +32,18 @@ lazy_static! {
             ("<", ast::Comparisson::Lt),
             (">", ast::Comparisson::Gt),
         ]),
-        Operator::Binary(vec![("+", ast::BinaryOp::Add), ("-", ast::BinaryOp::Sub),]),
-        Operator::Prefix(vec![("!", ast::PrefixOp::Not), ("-", ast::PrefixOp::Neg)]),
+        Operator::Binary(vec![
+            ("+", ast::BinaryOp::Add),
+            ("-", ast::BinaryOp::Sub),
+        ]),
+        Operator::Binary(vec![
+            ("*", ast::BinaryOp::Mul),
+            ("//", ast::BinaryOp::FloorDivision),
+        ]),
+        Operator::Prefix(vec![
+            ("!", ast::PrefixOp::Not),
+            ("-", ast::PrefixOp::Neg)
+        ]),
     ];
 }
 
@@ -47,7 +58,8 @@ fn parse_comment(input: &str) -> Result<()> {
 }
 
 fn parse_line_space(input: &str) -> Result<()> {
-    let (input, _) = many0(tuple((multispace1, opt(parse_comment))))(input)?;
+    let (input, _) =
+        many0(tuple((multispace1, opt(parse_comment))))(input)?;
 
     Ok((input, ()))
 }
@@ -75,11 +87,14 @@ fn parse_function(input: &str) -> Result<ast::FunctionDeclration> {
     parse_function_exposed(input)
 }
 
-fn parse_function_exposed(input: &str) -> Result<ast::FunctionDeclration> {
+fn parse_function_exposed(
+    input: &str,
+) -> Result<ast::FunctionDeclration> {
     let (input, _) = tag("expose")(input)?;
     let (input, name) = preceded(multispace1, parse_ident)(input)?;
     let (input, _) = preceded(multispace0, tag("()"))(input)?;
-    let (input, return_type) = preceded(multispace0, parse_type)(input)?;
+    let (input, return_type) =
+        preceded(multispace0, parse_type)(input)?;
     let (input, body) = preceded(multispace0, parse_body)(input)?;
 
     Ok((
@@ -116,15 +131,19 @@ fn parse_statement(input: &str) -> Result<ast::Statement> {
 
 fn parse_return(input: &str) -> Result<ast::Statement> {
     let (input, _) = terminated(tag("return"), multispace1)(input)?;
-    let (input, expression) =
-        terminated(parse_expression, pair(parse_line_space, tag(";")))(input)?;
+    let (input, expression) = terminated(
+        parse_expression,
+        pair(parse_line_space, tag(";")),
+    )(input)?;
     Ok((input, ast::Statement::Return(expression)))
 }
 
 fn parse_assert(input: &str) -> Result<ast::Statement> {
     let (input, _) = terminated(tag("assert"), multispace1)(input)?;
-    let (input, expression) =
-        terminated(parse_expression, pair(parse_line_space, tag(";")))(input)?;
+    let (input, expression) = terminated(
+        parse_expression,
+        pair(parse_line_space, tag(";")),
+    )(input)?;
     Ok((input, ast::Statement::Assert(expression)))
 }
 
@@ -133,7 +152,9 @@ fn parse_expression(input: &str) -> Result<ast::Expression> {
     Ok((input, value))
 }
 
-fn parse_operator(level: usize) -> impl Fn(&str) -> Result<ast::Expression> {
+fn parse_operator(
+    level: usize,
+) -> impl Fn(&str) -> Result<ast::Expression> {
     move |input: &str| {
         let Some(operator) = OPERATORS.get(level) else {
             return parse_group(input);
@@ -148,11 +169,21 @@ fn parse_operator(level: usize) -> impl Fn(&str) -> Result<ast::Expression> {
                             move |input| {
                                 map(
                                     preceded(
-                                        terminated(tag(*value), space0),
+                                        terminated(
+                                            tag(*value),
+                                            space0,
+                                        ),
                                         parse_operator(level),
                                     ),
-                                    |expr| ast::Expression::Prefix(*op, Box::new(expr)),
-                                )(input)
+                                    |expr| {
+                                        ast::Expression::Prefix(
+                                            *op,
+                                            Box::new(expr),
+                                        )
+                                    },
+                                )(
+                                    input
+                                )
                             }
                         })
                         .collect::<Vec<_>>(),
@@ -164,7 +195,9 @@ fn parse_operator(level: usize) -> impl Fn(&str) -> Result<ast::Expression> {
 
                 let parsers = ops
                     .iter()
-                    .map(|(txt, res)| |input| map(tag(*txt), |_| *res)(input))
+                    .map(|(txt, res)| {
+                        |input| map(tag(*txt), |_| *res)(input)
+                    })
                     .collect::<Vec<_>>();
                 let parser = to_alt(&parsers);
 
@@ -182,7 +215,9 @@ fn parse_operator(level: usize) -> impl Fn(&str) -> Result<ast::Expression> {
                             Box::new(left),
                             chains
                                 .into_iter()
-                                .map(|(op, expr)| (op, Box::new(expr)))
+                                .map(|(op, expr)| {
+                                    (op, Box::new(expr))
+                                })
                                 .collect(),
                         ),
                     ))
@@ -193,19 +228,30 @@ fn parse_operator(level: usize) -> impl Fn(&str) -> Result<ast::Expression> {
 
                 let parsers = ops
                     .iter()
-                    .map(|(text, op)| move |input| map(tag(*text), |_| *op)(input))
+                    .map(|(text, op)| {
+                        move |input| map(tag(*text), |_| *op)(input)
+                    })
                     .collect::<Vec<_>>();
-                let mut op_parser = delimited(parse_line_space, to_alt(&parsers), parse_line_space);
+                let mut op_parser = delimited(
+                    parse_line_space,
+                    to_alt(&parsers),
+                    parse_line_space,
+                );
 
-                let (mut input, mut expr) = parse_operator(level + 1)(input)?;
+                let (mut input, mut expr) =
+                    parse_operator(level + 1)(input)?;
                 loop {
                     match op_parser(input) {
                         Err(_) => break,
                         Ok((n_input, op)) => {
-                            let (n_input, right_side) = parse_operator(level + 1)(n_input)?;
+                            let (n_input, right_side) =
+                                parse_operator(level + 1)(n_input)?;
                             input = n_input;
-                            expr =
-                                ast::Expression::Binary(Box::new(expr), op, Box::new(right_side));
+                            expr = ast::Expression::Binary(
+                                Box::new(expr),
+                                op,
+                                Box::new(right_side),
+                            );
                         }
                     }
                 }
@@ -216,7 +262,9 @@ fn parse_operator(level: usize) -> impl Fn(&str) -> Result<ast::Expression> {
     }
 }
 
-fn to_alt<'a, 'f, P, O>(parsers: &'f [P]) -> impl Fn(&'a str) -> Result<O> + 'f
+fn to_alt<'a, 'f, P, O>(
+    parsers: &'f [P],
+) -> impl Fn(&'a str) -> Result<O> + 'f
 where
     P: Fn(&'a str) -> Result<O>,
 {
@@ -228,11 +276,21 @@ where
         [a, b, c, d, e] => alt((a, b, c, d, e))(input),
         [a, b, c, d, e, f] => alt((a, b, c, d, e, f))(input),
         [a, b, c, d, e, f, g] => alt((a, b, c, d, e, f, g))(input),
-        [a, b, c, d, e, f, g, h] => alt((a, b, c, d, e, f, g, h))(input),
-        [a, b, c, d, e, f, g, h, i] => alt((a, b, c, d, e, f, g, h, i))(input),
-        [a, b, c, d, e, f, g, h, i, j] => alt((a, b, c, d, e, f, g, h, i, j))(input),
-        [a, b, c, d, e, f, g, h, i, j, k] => alt((a, b, c, d, e, f, g, h, i, j, k))(input),
-        [a, b, c, d, e, f, g, h, i, j, k, l] => alt((a, b, c, d, e, f, g, h, i, j, k, l))(input),
+        [a, b, c, d, e, f, g, h] => {
+            alt((a, b, c, d, e, f, g, h))(input)
+        }
+        [a, b, c, d, e, f, g, h, i] => {
+            alt((a, b, c, d, e, f, g, h, i))(input)
+        }
+        [a, b, c, d, e, f, g, h, i, j] => {
+            alt((a, b, c, d, e, f, g, h, i, j))(input)
+        }
+        [a, b, c, d, e, f, g, h, i, j, k] => {
+            alt((a, b, c, d, e, f, g, h, i, j, k))(input)
+        }
+        [a, b, c, d, e, f, g, h, i, j, k, l] => {
+            alt((a, b, c, d, e, f, g, h, i, j, k, l))(input)
+        }
         [a, b, c, d, e, f, g, h, i, j, k, l, m] => {
             alt((a, b, c, d, e, f, g, h, i, j, k, l, m))(input)
         }
@@ -243,23 +301,38 @@ where
             alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o))(input)
         }
         [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p))(input)
+            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p))(
+                input,
+            )
         }
         [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q))(input)
+            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q))(
+                input,
+            )
         }
         [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r))(input)
+            alt((
+                a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r,
+            ))(input)
         }
         [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s))(input)
+            alt((
+                a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r,
+                s,
+            ))(input)
         }
         [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t))(input)
+            alt((
+                a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r,
+                s, t,
+            ))(input)
         }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u] => alt((
-            a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u,
-        ))(input),
+        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u] => {
+            alt((
+                a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r,
+                s, t, u,
+            ))(input)
+        }
         _ => panic!(),
     }
 }
@@ -277,7 +350,9 @@ fn parse_group(input: &str) -> Result<ast::Expression> {
 
 fn parse_literal(input: &str) -> Result<ast::Expression> {
     let (input, value) = alt((
-        map(digit1, |val: &str| ast::Literal::Int(val.parse().unwrap())),
+        map(digit1, |val: &str| {
+            ast::Literal::Int(val.parse().unwrap())
+        }),
         map(tag("false"), |_| ast::Literal::Bool(false)),
         map(tag("true"), |_| ast::Literal::Bool(true)),
     ))(input)?;
@@ -286,6 +361,9 @@ fn parse_literal(input: &str) -> Result<ast::Expression> {
 }
 
 fn parse_ident(input: &str) -> Result<ast::Ident> {
-    let (input, ident) = recognize(pair(alpha1, many0(alt((tag("_"), alphanumeric1)))))(input)?;
+    let (input, ident) = recognize(pair(
+        alpha1,
+        many0(alt((tag("_"), alphanumeric1))),
+    ))(input)?;
     Ok((input, ast::Ident(ident.into())))
 }

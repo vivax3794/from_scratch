@@ -14,13 +14,11 @@ clean:
 	cd ${RUST_COMPILER_PROJECT}; cargo clean
 	rm -rf bin/
 
-${RUST_COMPILER}: FORCE
+${RUST_COMPILER}: ${RUST_COMPILER_PROJECT}/src/* 
 	cd ${RUST_COMPILER_PROJECT}; cargo build
 
-bin:
-	mkdir bin
-
-bin/%: ${COMPILER_TESTS}/%.viv ${COMPILER} bin
+bin/%: ${COMPILER_TESTS}/%.viv ${COMPILER}
+	mkdir -p bin
 	${COMPILER} build $< $@
 
 test_compiler: ${COMPILER_TESTS_BINARIES}

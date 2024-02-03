@@ -44,6 +44,8 @@ pub enum Expression {
 pub enum BinaryOp {
     Add,
     Sub,
+    Mul,
+    FloorDivision,
 }
 
 #[derive(Debug, Clone, Copy)]
