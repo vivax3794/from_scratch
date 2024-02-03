@@ -194,6 +194,12 @@ impl<'ctx> CodeGen<'ctx> {
                     (ir::IntBinaryOp::FloorDivision, true) => self
                         .builder
                         .build_int_signed_div(left, right, "Div"),
+                    (ir::IntBinaryOp::Remainder, false) => self
+                        .builder
+                        .build_int_unsigned_rem(left, right, "Rem"),
+                    (ir::IntBinaryOp::Remainder, true) => self
+                        .builder
+                        .build_int_signed_rem(left, right, "Rem"),
                 }
             }
         }

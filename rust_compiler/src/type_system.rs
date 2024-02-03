@@ -53,6 +53,10 @@ impl Range {
         }
     }
 
+    fn contains(&self, value: i128) -> bool {
+        self.min <= value && value <= self.max
+    }
+
     fn width(min: i128, max: i128) -> u8 {
         match () {
             _ if min >= u8::MIN as i128 && max <= u8::MAX as i128 => {
@@ -374,6 +378,10 @@ impl TypeResolver {
                     }
                     ast::BinaryOp::FloorDivision => {
                         // div is really just a mul
+                        if right_range.contains(0) {
+                            panic!("Dont divide by zero you idiot");
+                        }
+
                         let bottom = left_range.min / right_range.min;
                         let top = left_range.max / right_range.max;
                         (
@@ -382,6 +390,27 @@ impl TypeResolver {
                                 i128::max(top, bottom),
                             ),
                             ir::IntBinaryOp::FloorDivision,
+                        )
+                    }
+                    ast::BinaryOp::Mod => {
+                        // a % b = a - b * (a / b)
+                        if right_range.contains(0) {
+                            panic!("Dont divide by zero you idiot");
+                        }
+
+                        let bottom = right_range.min
+                            * (left_range.min / right_range.min);
+                        let top = right_range.max
+                            * (left_range.max / right_range.max);
+
+                        (
+                            Range::new(
+                                left_range.min
+                                    - i128::min(top, bottom),
+                                right_range.max
+                                    - i128::max(top, bottom),
+                            ),
+                            ir::IntBinaryOp::Remainder,
                         )
                     }
                 };

@@ -39,6 +39,7 @@ lazy_static! {
         Operator::Binary(vec![
             ("*", ast::BinaryOp::Mul),
             ("//", ast::BinaryOp::FloorDivision),
+            ("%", ast::BinaryOp::Mod),
         ]),
         Operator::Prefix(vec![
             ("!", ast::PrefixOp::Not),

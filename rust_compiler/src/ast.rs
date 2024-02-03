@@ -46,6 +46,7 @@ pub enum BinaryOp {
     Sub,
     Mul,
     FloorDivision,
+    Mod,
 }
 
 #[derive(Debug, Clone, Copy)]

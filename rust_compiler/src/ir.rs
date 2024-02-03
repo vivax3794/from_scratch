@@ -66,6 +66,7 @@ pub enum IntBinaryOp {
     Sub,
     Mul,
     FloorDivision,
+    Remainder,
 }
 
 #[derive(Debug)]
