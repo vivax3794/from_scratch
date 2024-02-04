@@ -1,0 +1,41 @@
+expose main() u8 {
+    let mut x: u8 = 0;
+    if true {
+        x = 10;
+    }
+    assert x == 10;
+
+    let mut x: u8 = 0;
+    if false {
+        x = 10;
+    }
+    assert x == 0;
+
+    let mut x: u8 = 0;
+    if false {
+        x = 10;
+    } else {
+        x = 100;
+    }
+    assert x == 100;
+
+    let mut x: u8 = 0;
+    if false {
+        x = 10;
+    } else if true {
+        x = 100;
+    } else {
+        x = 200;
+    }
+    assert x == 100;
+
+    let mut x: u8 = 0;
+    if false {
+        x = 10;
+    } else if false {
+        x = 100;
+    } else {
+        x = 200;
+    }
+    assert x == 200;
+}

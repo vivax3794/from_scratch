@@ -34,6 +34,17 @@ pub enum Statement {
         name: Ident,
         type_: Type,
         value: Expression,
+        mutable: bool,
+    },
+    Assign {
+        name: Ident,
+        expr: Expression,
+    },
+    If {
+        condition: Expression,
+        body: Body,
+        elif: Box<[(Expression, Body)]>,
+        else_block: Option<Body>,
     },
 }
 

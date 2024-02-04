@@ -10,7 +10,7 @@ struct Range {
     width: u8,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 enum Type {
     Range(Range),
     Boolean,
@@ -150,7 +150,7 @@ impl Type {
 
 #[derive(Default)]
 struct Scope {
-    vars: HashMap<ast::Ident, (ir::Identifier, Type)>,
+    vars: HashMap<ast::Ident, (ir::Identifier, Type, bool)>,
 }
 
 pub struct TypeResolver {
@@ -250,7 +250,12 @@ impl TypeResolver {
 
                 ir::Statement::Assert(expr)
             }
-            ast::Statement::VaribleBinding { name, type_, value } => {
+            ast::Statement::VaribleBinding {
+                name,
+                type_,
+                value,
+                mutable,
+            } => {
                 let id = ir::Identifier::new();
                 let type_ = self.resolve_type(type_);
                 let value = self.resolve_expression(value);
@@ -261,11 +266,31 @@ impl TypeResolver {
                 let value = convert_if_possible(value, &type_);
 
                 self.function_vars.push((id, type_.clone()));
-                self.scope.vars.insert(name.clone(), (id, type_));
+                self.scope
+                    .vars
+                    .insert(name.clone(), (id, type_, *mutable));
 
                 ir::Statement::Assign {
                     name: id,
                     value: value.expr,
+                }
+            }
+            ast::Statement::Assign { name, expr } => {
+                let (id, type_, mutable) =
+                    *self.scope.vars.get(name).unwrap();
+                if !mutable {
+                    panic!("Cant mutate this value");
+                }
+
+                let expr = self.resolve_expression(expr);
+                if !type_.is_sub(&expr.type_) {
+                    panic!("At least give them the same type");
+                }
+                let expr = convert_if_possible(expr, &type_);
+
+                ir::Statement::Assign {
+                    name: id,
+                    value: expr.expr,
                 }
             }
         }
@@ -277,7 +302,8 @@ impl TypeResolver {
     ) -> TypedExpression {
         match expr {
             ast::Expression::Identifier(ident) => {
-                let (id, type_) = self.scope.vars.get(ident).unwrap();
+                let (id, type_, _) =
+                    self.scope.vars.get(ident).unwrap();
 
                 let expr = match type_ {
                     Type::Range(_) => ir::Expression::Int(

@@ -7,6 +7,7 @@ use nom::{
         space0, space1,
     },
     combinator::{eof, map, opt, recognize},
+    error::ParseError,
     multi::many0,
     sequence::{delimited, pair, preceded, terminated, tuple},
     IResult,
@@ -127,7 +128,12 @@ fn parse_body(input: &str) -> Result<ast::Body> {
 }
 
 fn parse_statement(input: &str) -> Result<ast::Statement> {
-    alt((parse_return, parse_assert, parse_var_binding))(input)
+    alt((
+        parse_return,
+        parse_assert,
+        parse_var_binding,
+        parse_assignment,
+    ))(input)
 }
 
 fn parse_return(input: &str) -> Result<ast::Statement> {
@@ -150,6 +156,8 @@ fn parse_assert(input: &str) -> Result<ast::Statement> {
 
 fn parse_var_binding(input: &str) -> Result<ast::Statement> {
     let (input, _) = terminated(tag("let"), multispace1)(input)?;
+    let (input, mutable) =
+        opt(terminated(tag("mut"), multispace1))(input)?;
     let (input, name) =
         terminated(parse_ident, parse_line_space)(input)?;
     let (input, _) = terminated(tag(":"), parse_line_space)(input)?;
@@ -160,17 +168,35 @@ fn parse_var_binding(input: &str) -> Result<ast::Statement> {
         terminated(parse_expression, parse_line_space)(input)?;
     let (input, _) = terminated(tag(";"), parse_line_space)(input)?;
 
-    Ok(
-        (
-            input,
-            ast::Statement::VaribleBinding { name, type_, value },
-        ),
-    )
+    Ok((
+        input,
+        ast::Statement::VaribleBinding {
+            name,
+            type_,
+            value,
+            mutable: mutable.is_some(),
+        },
+    ))
+}
+fn parse_assignment(input: &str) -> Result<ast::Statement> {
+    let (input, name) =
+        terminated(parse_ident, parse_line_space)(input)?;
+    let (input, _) = terminated(tag("="), parse_line_space)(input)?;
+    let (input, value) =
+        terminated(parse_expression, parse_line_space)(input)?;
+    let (input, _) = terminated(tag(";"), parse_line_space)(input)?;
+
+    Ok((input, ast::Statement::Assign { name, expr: value }))
 }
 
 fn parse_expression(input: &str) -> Result<ast::Expression> {
     let (input, value) = parse_operator(0)(input)?;
     Ok((input, value))
+}
+
+fn parse_if(input: &str) -> Result<ast::Statement> {
+    let (input, _) = terminated(tag("if"), multispace1)(input)?;
+    // TODO: parse if-else if-elif
 }
 
 fn parse_operator(

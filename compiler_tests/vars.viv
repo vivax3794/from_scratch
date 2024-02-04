@@ -19,5 +19,11 @@ expose main() u8 {
     let y: u8 = 255;
     assert x != y;
 
+    let mut x: u8 = 0;
+    assert x == 0;
+    x = 10;
+    assert x == 10;
+    
+
     return 0;
 }
