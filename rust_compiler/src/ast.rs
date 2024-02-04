@@ -20,7 +20,7 @@ pub enum Type {
     Named(Ident),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Ident(pub Box<str>);
 
 #[derive(Debug)]
@@ -30,6 +30,11 @@ pub struct Body(pub Box<[Statement]>);
 pub enum Statement {
     Return(Expression),
     Assert(Expression),
+    VaribleBinding {
+        name: Ident,
+        type_: Type,
+        value: Expression,
+    },
 }
 
 #[derive(Debug)]
@@ -38,6 +43,7 @@ pub enum Expression {
     Prefix(PrefixOp, Box<Expression>),
     Comparison(Box<Expression>, Vec<(Comparisson, Box<Expression>)>),
     Binary(Box<Expression>, BinaryOp, Box<Expression>),
+    Identifier(Ident),
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::ast;
 use crate::ir;
 
@@ -146,13 +148,24 @@ impl Type {
     }
 }
 
+#[derive(Default)]
+struct Scope {
+    vars: HashMap<ast::Ident, (ir::Identifier, Type)>,
+}
+
 pub struct TypeResolver {
     return_type: Option<Type>,
+    scope: Scope,
+    function_vars: Vec<(ir::Identifier, Type)>,
 }
 
 impl TypeResolver {
     pub fn new() -> Self {
-        Self { return_type: None }
+        Self {
+            return_type: None,
+            scope: Scope::default(),
+            function_vars: Vec::new(),
+        }
     }
 
     pub fn resolve_file(&mut self, file: &ast::File) -> ir::File {
@@ -185,6 +198,9 @@ impl TypeResolver {
                 return_type,
                 body,
             } => {
+                self.function_vars.clear();
+                self.scope = Scope::default();
+
                 let return_type = self.resolve_type(return_type);
                 self.return_type = Some(return_type.clone());
                 let body = body
@@ -198,6 +214,12 @@ impl TypeResolver {
                     name: ir::FunctionName::Named(name.0.clone()),
                     return_type: return_type.underlying(),
                     body: ir::Body(body),
+                    vars: self
+                        .function_vars
+                        .clone()
+                        .into_iter()
+                        .map(|(id, type_)| (id, type_.underlying()))
+                        .collect(),
                 }
             }
         }
@@ -212,33 +234,13 @@ impl TypeResolver {
                 let return_type =
                     self.return_type.as_ref().unwrap().clone();
                 let expr = self.resolve_expression(expr);
+                let expr = convert_if_possible(expr, &return_type);
                 if !return_type.is_sub(&expr.type_) {
                     panic!(
                         "Incompatible types, {:?} and {:?}",
                         return_type, expr.type_
                     );
                 }
-
-                let expr = match expr {
-                    TypedExpression {
-                        expr: ir::Expression::Int(expr),
-                        type_: Type::Range(range),
-                    } => TypedExpression {
-                        type_: {
-                            let mut range = range;
-                            range.width = return_type.int().width;
-                            Type::Range(range)
-                        },
-                        expr: ir::Expression::Int(
-                            truncate_int_maybe(
-                                expr,
-                                range,
-                                return_type.int().width,
-                            ),
-                        ),
-                    },
-                    _ => expr,
-                };
 
                 ir::Statement::Return(expr.expr)
             }
@@ -248,6 +250,24 @@ impl TypeResolver {
 
                 ir::Statement::Assert(expr)
             }
+            ast::Statement::VaribleBinding { name, type_, value } => {
+                let id = ir::Identifier::new();
+                let type_ = self.resolve_type(type_);
+                let value = self.resolve_expression(value);
+
+                if !type_.is_sub(&value.type_) {
+                    panic!("Type mismatch")
+                }
+                let value = convert_if_possible(value, &type_);
+
+                self.function_vars.push((id, type_.clone()));
+                self.scope.vars.insert(name.clone(), (id, type_));
+
+                ir::Statement::Assign {
+                    name: id,
+                    value: value.expr,
+                }
+            }
         }
     }
 
@@ -256,6 +276,23 @@ impl TypeResolver {
         expr: &ast::Expression,
     ) -> TypedExpression {
         match expr {
+            ast::Expression::Identifier(ident) => {
+                let (id, type_) = self.scope.vars.get(ident).unwrap();
+
+                let expr = match type_ {
+                    Type::Range(_) => ir::Expression::Int(
+                        ir::IntExpression::LoadVar(*id),
+                    ),
+                    Type::Boolean => ir::Expression::Bool(
+                        ir::BoolExpression::LoadVar(*id),
+                    ),
+                };
+
+                TypedExpression {
+                    type_: type_.clone(),
+                    expr,
+                }
+            }
             ast::Expression::Literal(lit) => match lit {
                 ast::Literal::Int(value) => {
                     let value = *value;
@@ -581,10 +618,36 @@ fn truncate_int_maybe(
 ) -> ir::IntExpression {
     if range.width == target {
         expr
-    } else {
+    } else if range.width > target {
         ir::IntExpression::Truncate {
             value: Box::new(expr),
             target,
         }
+    } else {
+        cast_range_to_width(range, target, expr)
+    }
+}
+
+fn convert_if_possible(
+    expr: TypedExpression,
+    target_type: &Type,
+) -> TypedExpression {
+    match expr {
+        TypedExpression {
+            expr: ir::Expression::Int(expr),
+            type_: Type::Range(range),
+        } => TypedExpression {
+            type_: {
+                let mut range = range;
+                range.width = target_type.int().width;
+                Type::Range(range)
+            },
+            expr: ir::Expression::Int(truncate_int_maybe(
+                expr,
+                range,
+                target_type.int().width,
+            )),
+        },
+        _ => expr,
     }
 }

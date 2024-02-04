@@ -1,0 +1,23 @@
+expose main() u8 {
+    let x: u8 = 0;
+    assert x == 0;
+        
+    let x: u16 = 0;
+    assert x == 0;
+
+    let x: bool = true;
+    assert x;
+
+    let x: u8 = 300 - 300;
+    assert x == 0;
+
+    let x: i8 = -5;
+    let y: i16 = -5;
+    assert x == y;
+
+    let x: i8 = -1;
+    let y: u8 = 255;
+    assert x != y;
+
+    return 0;
+}

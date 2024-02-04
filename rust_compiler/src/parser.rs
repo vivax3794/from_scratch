@@ -127,7 +127,7 @@ fn parse_body(input: &str) -> Result<ast::Body> {
 }
 
 fn parse_statement(input: &str) -> Result<ast::Statement> {
-    alt((parse_return, parse_assert))(input)
+    alt((parse_return, parse_assert, parse_var_binding))(input)
 }
 
 fn parse_return(input: &str) -> Result<ast::Statement> {
@@ -146,6 +146,26 @@ fn parse_assert(input: &str) -> Result<ast::Statement> {
         pair(parse_line_space, tag(";")),
     )(input)?;
     Ok((input, ast::Statement::Assert(expression)))
+}
+
+fn parse_var_binding(input: &str) -> Result<ast::Statement> {
+    let (input, _) = terminated(tag("let"), multispace1)(input)?;
+    let (input, name) =
+        terminated(parse_ident, parse_line_space)(input)?;
+    let (input, _) = terminated(tag(":"), parse_line_space)(input)?;
+    let (input, type_) =
+        terminated(parse_type, parse_line_space)(input)?;
+    let (input, _) = terminated(tag("="), parse_line_space)(input)?;
+    let (input, value) =
+        terminated(parse_expression, parse_line_space)(input)?;
+    let (input, _) = terminated(tag(";"), parse_line_space)(input)?;
+
+    Ok(
+        (
+            input,
+            ast::Statement::VaribleBinding { name, type_, value },
+        ),
+    )
 }
 
 fn parse_expression(input: &str) -> Result<ast::Expression> {
@@ -346,6 +366,7 @@ fn parse_group(input: &str) -> Result<ast::Expression> {
             delimited(parse_line_space, tag(")"), parse_line_space),
         ),
         parse_literal,
+        map(parse_ident, |ident| ast::Expression::Identifier(ident)),
     ))(input)
 }
 

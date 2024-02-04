@@ -7,6 +7,7 @@ pub enum Declaration {
         name: FunctionName,
         return_type: Type,
         body: Body,
+        vars: Box<[(Identifier, Type)]>,
     },
 }
 
@@ -16,7 +17,7 @@ pub enum FunctionName {
     Named(Box<str>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Type {
     Int(u8),
     Bool,
@@ -29,6 +30,7 @@ pub struct Body(pub Box<[Statement]>);
 pub enum Statement {
     Return(Expression),
     Assert(BoolExpression),
+    Assign { name: Identifier, value: Expression },
 }
 
 #[derive(Debug)]
@@ -54,6 +56,7 @@ pub enum IntExpression {
     },
     Neg(Box<IntExpression>),
     Binary(Box<IntExpression>, IntBinaryOp, Box<IntExpression>, bool),
+    LoadVar(Identifier),
 }
 
 #[derive(Debug)]
@@ -73,10 +76,18 @@ pub enum BoolExpression {
         IntExpression,
         Box<[(inkwell::IntPredicate, IntExpression)]>,
     ),
+    LoadVar(Identifier),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Identifier(pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Identifier(pub uuid::Uuid);
+
+impl Identifier {
+    pub fn new() -> Self {
+        let id = uuid::Uuid::new_v4();
+        Self(id)
+    }
+}
 
 impl FunctionName {
     pub fn str(&self) -> Box<str> {

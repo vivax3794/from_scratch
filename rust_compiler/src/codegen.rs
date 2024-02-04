@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use inkwell::context::Context;
 use inkwell::types::BasicType;
 use inkwell::values::BasicValue;
@@ -8,6 +10,11 @@ pub struct CodeGen<'ctx> {
     context: &'ctx Context,
     module: inkwell::module::Module<'ctx>,
     builder: inkwell::builder::Builder<'ctx>,
+
+    function_vars: HashMap<
+        ir::Identifier,
+        (inkwell::values::PointerValue<'ctx>, ir::Type),
+    >,
 }
 
 impl<'ctx> CodeGen<'ctx> {
@@ -19,6 +26,7 @@ impl<'ctx> CodeGen<'ctx> {
             context,
             module,
             builder,
+            function_vars: HashMap::new(),
         }
     }
 
@@ -70,7 +78,10 @@ impl<'ctx> CodeGen<'ctx> {
                 name,
                 return_type,
                 body,
+                vars,
             } => {
+                self.function_vars.clear();
+
                 let return_type = self.llvm_type(return_type);
                 let signature = return_type.fn_type(&[], false);
                 let function = self.module.add_function(
@@ -83,6 +94,14 @@ impl<'ctx> CodeGen<'ctx> {
                     .context
                     .append_basic_block(function, "entry");
                 self.builder.position_at_end(entry_block);
+
+                for (id, type_) in vars.iter() {
+                    let ptr = self
+                        .builder
+                        .build_alloca(self.llvm_type(type_), "Var");
+                    self.function_vars.insert(*id, (ptr, *type_));
+                }
+
                 for stmt in body.0.iter() {
                     self.generate_statement(stmt);
                 }
@@ -124,6 +143,11 @@ impl<'ctx> CodeGen<'ctx> {
 
                 self.builder.position_at_end(continue_branch);
             }
+            ir::Statement::Assign { name, value } => {
+                let (ptr, _) = *self.function_vars.get(name).unwrap();
+                let expr = self.generate_expression(value);
+                self.builder.build_store(ptr, expr);
+            }
         }
     }
 
@@ -148,7 +172,7 @@ impl<'ctx> CodeGen<'ctx> {
         match expr {
             ir::IntExpression::Literal { value, width } => {
                 let type_ = self.int_type(*width);
-                type_.const_int(*value as u64, false)
+                type_.const_int(*value, false)
             }
             ir::IntExpression::Extend {
                 value,
@@ -210,6 +234,13 @@ impl<'ctx> CodeGen<'ctx> {
                         .build_int_signed_rem(left, right, "Rem"),
                 }
             }
+            ir::IntExpression::LoadVar(id) => {
+                let (ptr, type_) =
+                    *self.function_vars.get(id).unwrap();
+                self.builder
+                    .build_load(self.llvm_type(&type_), ptr, "Var")
+                    .into_int_value()
+            }
         }
     }
 
@@ -248,6 +279,13 @@ impl<'ctx> CodeGen<'ctx> {
                 }
 
                 result
+            }
+            ir::BoolExpression::LoadVar(id) => {
+                let (ptr, type_) =
+                    *self.function_vars.get(id).unwrap();
+                self.builder
+                    .build_load(self.llvm_type(&type_), ptr, "Var")
+                    .into_int_value()
             }
         }
     }
