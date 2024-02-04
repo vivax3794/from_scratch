@@ -43,19 +43,15 @@ pub enum IntExpression {
         value: u64,
         width: u8,
     },
-    // These should not fail, these are for implicit conversitions
-    // do not use these for user asked for conversions that might fail (i.e overflow)
-    // cast a unsigned value to a higher width
-    UpCastWidth {
+    Extend {
         value: Box<IntExpression>,
         target: u8,
         signed: bool,
     },
-    // note: we do not need a unsigned to signed conversion as that can happen implicitly by just
-    // using the unsigned value in the signed values place
-    // (if the value could go into the negative range because of its range it will be cast to a
-    // higher width first, like a u8 would be cast to a i16, but if the range is know to be 0-5 it
-    // would just be a i8)
+    Truncate {
+        value: Box<IntExpression>,
+        target: u8,
+    },
     Neg(Box<IntExpression>),
     Binary(Box<IntExpression>, IntBinaryOp, Box<IntExpression>, bool),
 }

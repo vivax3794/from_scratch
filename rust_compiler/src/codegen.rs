@@ -150,7 +150,7 @@ impl<'ctx> CodeGen<'ctx> {
                 let type_ = self.int_type(*width);
                 type_.const_int(*value as u64, false)
             }
-            ir::IntExpression::UpCastWidth {
+            ir::IntExpression::Extend {
                 value,
                 target,
                 signed,
@@ -169,6 +169,14 @@ impl<'ctx> CodeGen<'ctx> {
                         "Unsigned_Cast",
                     )
                 }
+            }
+            ir::IntExpression::Truncate { value, target } => {
+                let value = self.generate_int_expression(value);
+                self.builder.build_int_truncate(
+                    value,
+                    self.int_type(*target),
+                    "Trunc",
+                )
             }
             ir::IntExpression::Neg(value) => {
                 let value = self.generate_int_expression(value);

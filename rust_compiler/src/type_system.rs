@@ -14,6 +14,15 @@ enum Type {
     Boolean,
 }
 
+impl Type {
+    fn int(&self) -> Range {
+        match self {
+            Type::Range(range) => *range,
+            _ => panic!("hmmm"),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct TypedExpression {
     expr: ir::Expression,
@@ -209,6 +218,27 @@ impl TypeResolver {
                         return_type, expr.type_
                     );
                 }
+
+                let expr = match expr {
+                    TypedExpression {
+                        expr: ir::Expression::Int(expr),
+                        type_: Type::Range(range),
+                    } => TypedExpression {
+                        type_: {
+                            let mut range = range;
+                            range.width = return_type.int().width;
+                            Type::Range(range)
+                        },
+                        expr: ir::Expression::Int(
+                            truncate_int_maybe(
+                                expr,
+                                range,
+                                return_type.int().width,
+                            ),
+                        ),
+                    },
+                    _ => expr,
+                };
 
                 ir::Statement::Return(expr.expr)
             }
@@ -536,10 +566,25 @@ fn cast_range_to_width(
     if type_.width == target_width {
         expr
     } else {
-        ir::IntExpression::UpCastWidth {
+        ir::IntExpression::Extend {
             value: Box::new(expr),
             target: target_width,
             signed: type_.signed(),
+        }
+    }
+}
+
+fn truncate_int_maybe(
+    expr: ir::IntExpression,
+    range: Range,
+    target: u8,
+) -> ir::IntExpression {
+    if range.width == target {
+        expr
+    } else {
+        ir::IntExpression::Truncate {
+            value: Box::new(expr),
+            target,
         }
     }
 }
