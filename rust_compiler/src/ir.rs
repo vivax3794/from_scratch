@@ -30,7 +30,14 @@ pub struct Body(pub Box<[Statement]>);
 pub enum Statement {
     Return(Expression),
     Assert(BoolExpression),
-    Assign { name: Identifier, value: Expression },
+    Assign {
+        name: Identifier,
+        value: Expression,
+    },
+    If {
+        conditions: Box<[(BoolExpression, Body)]>,
+        else_block: Option<Body>,
+    },
 }
 
 #[derive(Debug)]
@@ -72,10 +79,7 @@ pub enum IntBinaryOp {
 pub enum BoolExpression {
     Literal(bool),
     Not(Box<BoolExpression>),
-    Comparison(
-        IntExpression,
-        Box<[(inkwell::IntPredicate, IntExpression)]>,
-    ),
+    Comparison(IntExpression, Box<[(inkwell::IntPredicate, IntExpression)]>),
     LoadVar(Identifier),
 }
 

@@ -38,4 +38,11 @@ expose main() u8 {
         x = 200;
     }
     assert x == 200;
+
+    let x: u16 = 200;
+    if x < 256 {
+        let y: u8 = x;
+    }
+
+    return 0;
 }
