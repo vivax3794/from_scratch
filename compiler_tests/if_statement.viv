@@ -39,10 +39,11 @@ expose main() u8 {
     }
     assert x == 200;
 
-    let x: u16 = 200;
-    if x < 256 {
-        let y: u8 = x;
+    let x: u8 = 0;
+    if true {
+        let x: u8 = 100;
     }
+    assert x == 0;
 
     return 0;
 }

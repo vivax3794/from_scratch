@@ -1,0 +1,7 @@
+expose main() u8 {
+    let x: 0..10 = 5;
+    let y: 0..20 = x;
+    let z: -20..20 = y;
+
+    return 0;
+}

@@ -18,6 +18,7 @@ pub enum FunctionDeclration {
 #[derive(Debug)]
 pub enum Type {
     Named(Ident),
+    Range(i128, i128),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -39,6 +40,10 @@ pub enum Statement {
     Assign {
         name: Ident,
         expr: Expression,
+    },
+    Update {
+        name: Ident,
+        op: BinaryOp,
     },
     If {
         condition: Expression,
