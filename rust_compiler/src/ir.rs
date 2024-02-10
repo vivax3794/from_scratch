@@ -38,6 +38,10 @@ pub enum Statement {
         conditions: Box<[(BoolExpression, Body)]>,
         else_block: Option<Body>,
     },
+    WhileLoop {
+        condition: BoolExpression,
+        body: Body,
+    },
 }
 
 #[derive(Debug)]

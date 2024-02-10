@@ -48,6 +48,10 @@ pub enum Statement {
         elif: Box<[(Expression, Body)]>,
         else_block: Option<Body>,
     },
+    WhileLoop {
+        condition: Expression,
+        body: Body,
+    },
 }
 
 #[derive(Debug)]

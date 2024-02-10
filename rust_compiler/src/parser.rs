@@ -153,6 +153,7 @@ fn parse_statement(input: &str) -> Result<ast::Statement> {
         parse_assignment,
         parse_if,
         parse_compound_assignment,
+        parse_while_loop,
     ))(input)
 }
 
@@ -284,6 +285,14 @@ fn parse_if(input: &str) -> Result<ast::Statement> {
             else_block,
         },
     ))
+}
+
+fn parse_while_loop(input: &str) -> Result<ast::Statement> {
+    let (input, _) = tuple((tag("while"), multispace0))(input)?;
+    let (input, condition) =
+        terminated(parse_expression, multispace0)(input)?;
+    let (input, body) = parse_body(input)?;
+    Ok((input, ast::Statement::WhileLoop { condition, body }))
 }
 
 fn parse_expression(input: &str) -> Result<ast::Expression> {

@@ -69,49 +69,24 @@ impl Range {
     }
 
     fn width(min: i128, max: i128) -> u8 {
-        match () {
-            _ if min >= u8::MIN as i128 && max <= u8::MAX as i128 => {
-                8
-            }
-            _ if min >= u16::MIN as i128
-                && max <= u16::MAX as i128 =>
-            {
-                16
-            }
-            _ if min >= u32::MIN as i128
-                && max <= u32::MAX as i128 =>
-            {
-                32
-            }
-            _ if min >= u64::MIN as i128
-                && max <= u64::MAX as i128 =>
-            {
-                64
-            }
-            _ if min >= u128::MIN as i128
-                && max <= u128::MAX as i128 =>
-            {
-                128
-            }
-            _ if min >= i8::MIN as i128 && max <= i8::MAX as i128 => {
-                8
-            }
-            _ if min >= i16::MIN as i128
-                && max <= i16::MAX as i128 =>
-            {
-                16
-            }
-            _ if min >= i32::MIN as i128
-                && max <= i32::MAX as i128 =>
-            {
-                32
-            }
-            _ if min >= i64::MIN as i128
-                && max <= i64::MAX as i128 =>
-            {
-                64
-            }
-            _ => panic!("Invalid range"),
+        if min >= u8::MIN as i128 && max <= u8::MAX as i128 {
+            8
+        } else if min >= u16::MIN as i128 && max <= u16::MAX as i128 {
+            16
+        } else if min >= u32::MIN as i128 && max <= u32::MAX as i128 {
+            32
+        } else if min >= u64::MIN as i128 && max <= u64::MAX as i128 {
+            64
+        } else if min >= i8::MIN as i128 && max <= i8::MAX as i128 {
+            8
+        } else if min >= i16::MIN as i128 && max <= i16::MAX as i128 {
+            16
+        } else if min >= i32::MIN as i128 && max <= i32::MAX as i128 {
+            32
+        } else if min >= i64::MIN as i128 && max <= i64::MAX as i128 {
+            64
+        } else {
+            panic!("Invalid range")
         }
     }
 
@@ -366,6 +341,13 @@ impl TypeResolver {
                         .into_boxed_slice(),
                     else_block,
                 }
+            }
+            ast::Statement::WhileLoop { condition, body } => {
+                let condition =
+                    self.resolve_expression(condition).bool();
+                let body = self.resolve_body(body);
+
+                ir::Statement::WhileLoop { condition, body }
             }
         }
     }

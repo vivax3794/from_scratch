@@ -1,4 +1,9 @@
 expose main() u8 {
+    let mut x: u8 = 0;
+    while x < 10 {
+        x += 1;
+    }
+    assert x == 10;
 
     return 0;
 }

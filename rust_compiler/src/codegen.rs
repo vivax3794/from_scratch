@@ -280,6 +280,42 @@ impl<'ctx> CodeGen<'ctx> {
                     .build_unconditional_branch(continue_block);
                 self.builder.position_at_end(continue_block);
             }
+            ir::Statement::WhileLoop { condition, body } => {
+                let current_block =
+                    self.builder.get_insert_block().unwrap();
+                let condition_block =
+                    self.context.insert_basic_block_after(
+                        current_block,
+                        "condition",
+                    );
+                let body_block =
+                    self.context.insert_basic_block_after(
+                        condition_block,
+                        "condition",
+                    );
+                let continue_block =
+                    self.context.insert_basic_block_after(
+                        body_block,
+                        "condition",
+                    );
+
+                self.builder
+                    .build_unconditional_branch(condition_block);
+                self.builder.position_at_end(condition_block);
+                let condition =
+                    self.generate_bool_expression(condition);
+                self.builder.build_conditional_branch(
+                    condition,
+                    body_block,
+                    continue_block,
+                );
+
+                self.builder.position_at_end(body_block);
+                self.generate_body(body);
+                self.builder
+                    .build_unconditional_branch(condition_block);
+                self.builder.position_at_end(continue_block);
+            }
         }
     }
 
