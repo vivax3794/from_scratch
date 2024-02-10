@@ -59,10 +59,8 @@ impl<'ctx> CodeGen<'ctx> {
 
     pub fn save_to_file(&self, file: &std::path::Path) {
         // self.module.print_to_stderr();
-        if std::env::var("C_DEBUG").is_err() {
-            self.fpm.run_on(&self.module);
-            // self.module.print_to_stderr();
-        }
+        self.fpm.run_on(&self.module);
+        // self.module.print_to_stderr();
 
         self.module.write_bitcode_to_path(file);
     }
