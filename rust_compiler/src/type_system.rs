@@ -281,7 +281,7 @@ impl TypeResolver {
                     value: value.expr,
                 }
             }
-            ast::Statement::Assign { name, expr } => {
+            ast::Statement::Assign { name, expr, op } => {
                 let (id, type_, mutable) =
                     *self.scope.vars.get(name).unwrap();
                 if !mutable {
@@ -289,14 +289,51 @@ impl TypeResolver {
                 }
 
                 let expr = self.resolve_expression(expr);
-                if !type_.is_sub(&expr.type_) {
-                    panic!("At least give them the same type");
-                }
-                let expr = convert_if_possible(expr, &type_);
 
-                ir::Statement::Assign {
-                    name: id,
-                    value: expr.expr,
+                if let Some(op) = op {
+                    let (expr_type, expr) = expr.int();
+                    let type_ = type_.int();
+
+                    let var = ir::IntExpression::LoadVar(id);
+                    let (signed, width, results) = self
+                        .make_same_type(
+                            vec![(type_, var), (expr_type, expr)],
+                            0,
+                        );
+                    let mut results = results.into_iter();
+                    let var = results.next().unwrap();
+                    let expr = results.next().unwrap();
+
+                    ir::Statement::Assign {
+                        name: id,
+                        value: ir::Expression::Int(ir::IntExpression::Truncate {
+                            value: Box::new(ir::IntExpression::Binary {
+                                left: Box::new(var),
+                                op: match op {
+                                    ast::BinaryOp::Add => ir::IntBinaryOp::Add,
+                                    ast::BinaryOp::Sub => ir::IntBinaryOp::Sub,
+                                    ast::BinaryOp::Mul => ir::IntBinaryOp::Mul,
+                                    ast::BinaryOp::FloorDivision => ir::IntBinaryOp::FloorDivision,
+                                    ast::BinaryOp::Mod => ir::IntBinaryOp::Remainder,
+                                    _ => panic!("Invalid operator"),
+                                },
+                                right: Box::new(expr),
+                                signed,
+                                bounds: Some((type_.min as u64, type_.max as u64)),
+                                width
+                            }),
+                            target: type_.width,
+                        }),
+                    }
+                } else {
+                    if !type_.is_sub(&expr.type_) {
+                        panic!("At least give them the same type");
+                    }
+                    let expr = convert_if_possible(expr, &type_);
+                    ir::Statement::Assign {
+                        name: id,
+                        value: expr.expr,
+                    }
                 }
             }
             ast::Statement::If {
@@ -557,12 +594,14 @@ impl TypeResolver {
                 TypedExpression {
                     type_: Type::Range(new_range),
                     expr: ir::Expression::Int(
-                        ir::IntExpression::Binary(
-                            Box::new(left),
+                        ir::IntExpression::Binary {
+                            left: Box::new(left),
                             op,
-                            Box::new(right),
-                            new_range.signed() || signed,
-                        ),
+                            right: Box::new(right),
+                            signed: signed || new_range.signed(),
+                            bounds: None,
+                            width,
+                        },
                     ),
                 }
             }

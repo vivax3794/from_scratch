@@ -24,6 +24,9 @@ expose main() u8 {
     x = 10;
     assert x == 10;
     
+    let x: i8 = 299 - 300;
+    assert x == -1;
+
 
     return 0;
 }

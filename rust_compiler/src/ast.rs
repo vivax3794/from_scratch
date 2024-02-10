@@ -39,11 +39,8 @@ pub enum Statement {
     },
     Assign {
         name: Ident,
+        op: Option<BinaryOp>,
         expr: Expression,
-    },
-    Update {
-        name: Ident,
-        op: BinaryOp,
     },
     If {
         condition: Expression,

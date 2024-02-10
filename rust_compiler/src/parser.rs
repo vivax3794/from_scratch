@@ -152,6 +152,7 @@ fn parse_statement(input: &str) -> Result<ast::Statement> {
         parse_var_binding,
         parse_assignment,
         parse_if,
+        parse_compound_assignment,
     ))(input)
 }
 
@@ -205,12 +206,47 @@ fn parse_assignment(input: &str) -> Result<ast::Statement> {
         terminated(parse_expression, parse_line_space)(input)?;
     let (input, _) = terminated(tag(";"), parse_line_space)(input)?;
 
-    Ok((input, ast::Statement::Assign { name, expr: value }))
+    Ok((
+        input,
+        ast::Statement::Assign {
+            name,
+            expr: value,
+            op: None,
+        },
+    ))
 }
 
-fn parse_expression(input: &str) -> Result<ast::Expression> {
-    let (input, value) = parse_operator(0)(input)?;
-    Ok((input, value))
+fn parse_compound_assignment(input: &str) -> Result<ast::Statement> {
+    let operators = OPERATORS
+        .iter()
+        .filter_map(|op| match op {
+            Operator::Binary(op) => Some(op),
+            _ => None,
+        })
+        .flatten();
+    let op_parsers = operators
+        .map(|(text, op)| {
+            move |input| map(tag(*text), |_| *op)(input)
+        })
+        .collect::<Vec<_>>();
+    let op_parser = to_alt(&op_parsers);
+
+    let (input, name) = parse_ident(input)?;
+    let (input, op) =
+        delimited(multispace0, op_parser, tag("="))(input)?;
+    let (input, expr) = terminated(
+        preceded(multispace0, parse_expression),
+        tuple((multispace0, tag(";"))),
+    )(input)?;
+
+    Ok((
+        input,
+        ast::Statement::Assign {
+            name,
+            op: Some(op),
+            expr,
+        },
+    ))
 }
 
 fn parse_if(input: &str) -> Result<ast::Statement> {
@@ -248,6 +284,11 @@ fn parse_if(input: &str) -> Result<ast::Statement> {
             else_block,
         },
     ))
+}
+
+fn parse_expression(input: &str) -> Result<ast::Expression> {
+    let (input, value) = parse_operator(0)(input)?;
+    Ok((input, value))
 }
 
 fn parse_operator(

@@ -1,14 +1,14 @@
 expose main() u8 {
-    let x: u8 = 254;
-    x +^= 1;
+    let mut x: u8 = 254;
+    x += 1;
     assert x == 255;
-    x +^= 1;
+    x += 1;
     assert x == 255;
 
-    let x: 0..5 = 4;
-    x +^= 1;
+    let mut x: 0..5 = 4;
+    x += 1;
     assert x == 5;
-    x +^= 1;
+    x += 1;
     assert x == 5;
 
     return 0;

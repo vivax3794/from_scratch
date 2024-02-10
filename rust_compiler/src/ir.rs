@@ -62,7 +62,14 @@ pub enum IntExpression {
         target: u8,
     },
     Neg(Box<IntExpression>),
-    Binary(Box<IntExpression>, IntBinaryOp, Box<IntExpression>, bool),
+    Binary {
+        left: Box<IntExpression>,
+        op: IntBinaryOp,
+        right: Box<IntExpression>,
+        signed: bool,
+        bounds: Option<(u64, u64)>,
+        width: u8,
+    },
     LoadVar(Identifier),
 }
 
@@ -79,7 +86,10 @@ pub enum IntBinaryOp {
 pub enum BoolExpression {
     Literal(bool),
     Not(Box<BoolExpression>),
-    Comparison(IntExpression, Box<[(inkwell::IntPredicate, IntExpression)]>),
+    Comparison(
+        IntExpression,
+        Box<[(inkwell::IntPredicate, IntExpression)]>,
+    ),
     LoadVar(Identifier),
 }
 
