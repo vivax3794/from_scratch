@@ -57,6 +57,13 @@ impl TypedExpression {
             Self::Bool(expr) => (Type::Boolean, ir::Expression::Bool(expr)),
         }
     }
+
+    fn generic_type(&self) -> Type {
+        match self {
+            Self::Int(range, _) => Type::Range(*range),
+            Self::Bool(_) => Type::Boolean,
+        }
+    }
 }
 
 impl Range {
@@ -134,7 +141,7 @@ struct Scope {
 
 struct TypeNarrow(Range);
 
-struct TypeNarrows(HashMap<ir::Identifier, TypeNarrow>);
+struct TypeNarrows(HashMap<ast::Ident, TypeNarrow>);
 
 impl TypeNarrow {
     fn narrow_type(&self, operation: ast::Comparisson, other_type: Range) -> Self {
@@ -163,13 +170,13 @@ impl TypeNarrows {
     fn narrow(
         self,
         operation: ast::Comparisson,
-        left: TypedExpression,
-        right: TypedExpression,
+        (left_expr, left_ast): (TypedExpression, ast::Expression),
+        (right_expr, right_ast): (TypedExpression, ast::Expression),
     ) -> Self {
-        let TypedExpression::Int(left_range, left_expr) = left else {
+        let TypedExpression::Int(left_range, left_expr) = left_expr else {
             return Self(HashMap::new());
         };
-        let TypedExpression::Int(right_range, right_expr) = right else {
+        let TypedExpression::Int(right_range, right_expr) = right_expr else {
             return Self(HashMap::new());
         };
 
@@ -186,18 +193,20 @@ impl TypeNarrows {
         let right_type = TypeNarrow(right_range).narrow_type(complement, left_range);
 
         let mut narrows = HashMap::new();
-        if let ir::IntExpression::LoadVar(left) = left_expr {
-            narrows.insert(left, left_type);
+        if let ast::Expression::Identifier(ident) = left_ast {
+            narrows.insert(ident, left_type);
         }
-        if let ir::IntExpression::LoadVar(right) = right_expr {
-            narrows.insert(right, right_type);
+        if let ast::Expression::Identifier(ident) = right_ast {
+            narrows.insert(ident, right_type);
         }
-
         let new = Self(narrows);
         self.and(new)
     }
 
-    fn and(self, other: Self) -> Self {}
+    fn and(self, other: Self) -> Self {
+        // TODO
+        return self;
+    }
 }
 
 pub struct TypeResolver {
@@ -277,12 +286,12 @@ impl TypeResolver {
             ast::Statement::Return(expr) => {
                 let return_type = *self.return_type.as_ref().unwrap();
                 let expr = self.resolve_expression(expr);
-                let expr = convert_if_possible(expr, &return_type);
-                if !return_type.is_sub(&expr.type_) {
-                    panic!("Incompatible types, {:?} and {:?}", return_type, expr.type_);
+                let (expr_type, expr) = convert_if_possible(expr, &return_type).generic();
+                if !return_type.is_sub(&expr_type) {
+                    panic!("Incompatible types, {:?} and {:?}", return_type, expr_type);
                 }
 
-                ir::Statement::Return(expr.expr)
+                ir::Statement::Return(expr)
             }
             ast::Statement::Assert(expr) => {
                 let expr = self.resolve_expression(expr);
@@ -299,19 +308,16 @@ impl TypeResolver {
                 let id = ir::Identifier::new();
                 let type_ = self.resolve_type(type_);
                 let value = self.resolve_expression(value);
+                let (value_type, value) = convert_if_possible(value, &type_).generic();
 
-                if !type_.is_sub(&value.type_) {
+                if !type_.is_sub(&value_type) {
                     panic!("Type mismatch")
                 }
-                let value = convert_if_possible(value, &type_);
 
                 self.function_vars.push((id, type_));
                 self.scope.vars.insert(name.clone(), (id, type_, *mutable));
 
-                ir::Statement::Assign {
-                    name: id,
-                    value: value.expr,
-                }
+                ir::Statement::Assign { name: id, value }
             }
             ast::Statement::Assign { name, expr, op } => {
                 let (id, type_, mutable) = *self.scope.vars.get(name).unwrap();
@@ -354,13 +360,13 @@ impl TypeResolver {
                         }),
                     }
                 } else {
-                    if !type_.is_sub(&expr.type_) {
+                    if !type_.is_sub(&expr.generic_type()) {
                         panic!("At least give them the same type");
                     }
                     let expr = convert_if_possible(expr, &type_);
                     ir::Statement::Assign {
                         name: id,
-                        value: expr.expr,
+                        value: expr.generic().1,
                     }
                 }
             }
@@ -406,14 +412,11 @@ impl TypeResolver {
             ast::Expression::Identifier(ident) => {
                 let (id, type_, _) = self.scope.vars.get(ident).unwrap();
 
-                let expr = match type_ {
-                    Type::Range(_) => ir::Expression::Int(ir::IntExpression::LoadVar(*id)),
-                    Type::Boolean => ir::Expression::Bool(ir::BoolExpression::LoadVar(*id)),
-                };
-
-                TypedExpression {
-                    type_: type_.clone(),
-                    expr,
+                match type_ {
+                    Type::Range(range) => {
+                        TypedExpression::Int(*range, ir::IntExpression::LoadVar(*id))
+                    }
+                    Type::Boolean => TypedExpression::Bool(ir::BoolExpression::LoadVar(*id)),
                 }
             }
             ast::Expression::Literal(lit) => match lit {
@@ -421,8 +424,7 @@ impl TypeResolver {
                     let value = *value;
                     let range = Range::new(value, value);
                     let width = range.width;
-                    let type_ = Type::Range(range);
-                    let expr = ir::Expression::Int(ir::IntExpression::Literal {
+                    let expr = ir::IntExpression::Literal {
                         value: if value >= 0 {
                             value as u64
                         } else {
@@ -430,13 +432,11 @@ impl TypeResolver {
                             signed as u64
                         },
                         width,
-                    });
-                    TypedExpression { expr, type_ }
+                    };
+                    TypedExpression::Int(range, expr)
                 }
                 ast::Literal::Bool(value) => {
-                    let type_ = Type::Boolean;
-                    let expr = ir::Expression::Bool(ir::BoolExpression::Literal(*value));
-                    TypedExpression { expr, type_ }
+                    TypedExpression::Bool(ir::BoolExpression::Literal(*value))
                 }
             },
             ast::Expression::Prefix(op, expr) => {
@@ -444,10 +444,7 @@ impl TypeResolver {
                 match op {
                     ast::PrefixOp::Not => {
                         let expr = ir::BoolExpression::Not(Box::new(expr.bool()));
-                        TypedExpression {
-                            expr: ir::Expression::Bool(expr),
-                            type_: Type::Boolean,
-                        }
+                        TypedExpression::Bool(expr)
                     }
                     ast::PrefixOp::Neg => {
                         let (range, expr) = expr.int();
@@ -461,10 +458,7 @@ impl TypeResolver {
                             max: -range.min,
                             width,
                         };
-                        TypedExpression {
-                            type_: Type::Range(range),
-                            expr: ir::Expression::Int(expr),
-                        }
+                        TypedExpression::Int(range, expr)
                     }
                 }
             }
@@ -497,10 +491,7 @@ impl TypeResolver {
                 let left = exprs.next().unwrap();
                 let chains = ops.zip(exprs).collect();
 
-                TypedExpression {
-                    type_: Type::Boolean,
-                    expr: ir::Expression::Bool(ir::BoolExpression::Comparison(left, chains)),
-                }
+                TypedExpression::Bool(ir::BoolExpression::Comparison(left, chains))
             }
             ast::Expression::Binary(left, op, right) => {
                 let (left_range, left) = self.resolve_expression(left).int();
@@ -571,17 +562,17 @@ impl TypeResolver {
                 let left = exprs.next().unwrap();
                 let right = exprs.next().unwrap();
 
-                TypedExpression {
-                    type_: Type::Range(new_range),
-                    expr: ir::Expression::Int(ir::IntExpression::Binary {
+                TypedExpression::Int(
+                    new_range,
+                    ir::IntExpression::Binary {
                         left: Box::new(left),
                         op,
                         right: Box::new(right),
                         signed: signed || new_range.signed(),
                         bounds: None,
                         width,
-                    }),
-                }
+                    },
+                )
             }
         }
     }
@@ -675,17 +666,14 @@ fn truncate_int_maybe(expr: ir::IntExpression, range: Range, target: u8) -> ir::
 
 fn convert_if_possible(expr: TypedExpression, target_type: &Type) -> TypedExpression {
     match expr {
-        TypedExpression {
-            expr: ir::Expression::Int(expr),
-            type_: Type::Range(range),
-        } => TypedExpression {
-            type_: {
+        TypedExpression::Int(range, expr) => TypedExpression::Int(
+            {
                 let mut range = range;
                 range.width = target_type.int().width;
-                Type::Range(range)
+                range
             },
-            expr: ir::Expression::Int(truncate_int_maybe(expr, range, target_type.int().width)),
-        },
-        _ => expr,
+            truncate_int_maybe(expr, range, target_type.int().width),
+        ),
+        TypedExpression::Bool(expr) => TypedExpression::Bool(expr),
     }
 }
