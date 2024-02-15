@@ -54,7 +54,7 @@ pub enum Statement {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Literal(Literal),
     Prefix(PrefixOp, Box<Expression>),
@@ -88,7 +88,7 @@ pub enum PrefixOp {
     Neg,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Literal {
     Int(i128),
     Bool(bool),

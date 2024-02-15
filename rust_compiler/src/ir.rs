@@ -44,13 +44,13 @@ pub enum Statement {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Int(IntExpression),
     Bool(BoolExpression),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IntExpression {
     Literal {
         value: u64,
@@ -77,7 +77,7 @@ pub enum IntExpression {
     LoadVar(Identifier),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IntBinaryOp {
     Add,
     Sub,
@@ -86,7 +86,7 @@ pub enum IntBinaryOp {
     Remainder,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BoolExpression {
     Literal(bool),
     Not(Box<BoolExpression>),
