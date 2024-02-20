@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 mod ast;
 mod codegen;
 mod ir;
+mod lexer;
 mod parser;
 mod type_system;
 
@@ -18,7 +19,11 @@ mod type_system;
 
 fn build(input_file: &Path, output_file: &Path) {
     let content = std::fs::read_to_string(input_file).unwrap();
-    let ast = parser::parse(&content);
+
+    let lexer = lexer::Lexer::new(&content);
+    let tokens = lexer.lex();
+    let parser = parser::Parser::new(tokens);
+    let ast = parser.parse();
 
     let mut type_resolver = type_system::TypeResolver::new();
     let ir = type_resolver.resolve_file(&ast);

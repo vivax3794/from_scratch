@@ -184,6 +184,9 @@ impl<'ctx> CodeGen<'ctx> {
 
     fn generate_statement(&mut self, stmt: &ir::Statement) {
         match stmt {
+            ir::Statement::Expression(expr) => {
+                self.generate_expression(expr);
+            }
             ir::Statement::Return(expr) => {
                 let value = self.generate_expression(expr);
                 self.builder.build_return(Some(&value));

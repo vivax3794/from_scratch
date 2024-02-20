@@ -19,6 +19,7 @@ pub enum FunctionDeclration {
 pub enum Type {
     Named(Ident),
     Range(i128, i128),
+    // Union(Box<[Type]>),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -29,6 +30,7 @@ pub struct Body(pub Box<[Statement]>);
 
 #[derive(Debug)]
 pub enum Statement {
+    Expr(Expression),
     Return(Expression),
     Assert(Expression),
     VaribleBinding {
@@ -38,7 +40,7 @@ pub enum Statement {
         mutable: bool,
     },
     Assign {
-        name: Ident,
+        target: Expression,
         op: Option<BinaryOp>,
         expr: Expression,
     },
@@ -58,7 +60,10 @@ pub enum Statement {
 pub enum Expression {
     Literal(Literal),
     Prefix(PrefixOp, Box<Expression>),
-    Comparison(Box<Expression>, Vec<(Comparisson, Box<Expression>)>),
+    Comparison(
+        Box<Expression>,
+        Vec<(ComparissonOp, Box<Expression>)>,
+    ),
     Binary(Box<Expression>, BinaryOp, Box<Expression>),
     Identifier(Ident),
 }
@@ -73,7 +78,7 @@ pub enum BinaryOp {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Comparisson {
+pub enum ComparissonOp {
     Eq,
     Lt,
     Gt,

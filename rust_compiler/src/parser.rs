@@ -1,518 +1,336 @@
-use lazy_static::lazy_static;
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_until},
-    character::complete::{
-        alpha1, alphanumeric1, digit1, multispace0, multispace1,
-        space0, space1,
-    },
-    combinator::{eof, map, opt, recognize},
-    error::ParseError,
-    multi::many0,
-    sequence::{delimited, pair, preceded, terminated, tuple},
-    IResult,
-};
+use std::collections::HashMap;
 
-type Result<'a, T> = IResult<&'a str, T>;
+use lazy_static::lazy_static;
+use maplit::hashmap;
 
 use crate::ast;
+use crate::lexer::Token;
 
 enum Operator {
-    Binary(Vec<(&'static str, ast::BinaryOp)>),
-    Prefix(Vec<(&'static str, ast::PrefixOp)>),
-    Comparison(Vec<(&'static str, ast::Comparisson)>),
+    Prefix(HashMap<Token, ast::PrefixOp>),
+    Binary(HashMap<Token, ast::BinaryOp>),
+    Comparison(HashMap<Token, ast::ComparissonOp>),
 }
 
 lazy_static! {
     static ref OPERATORS: Vec<Operator> = vec![
-        Operator::Comparison(vec![
-            ("==", ast::Comparisson::Eq),
-            (">=", ast::Comparisson::Ge),
-            ("<=", ast::Comparisson::Le),
-            ("!=", ast::Comparisson::Ne),
-            ("<", ast::Comparisson::Lt),
-            (">", ast::Comparisson::Gt),
-        ]),
-        Operator::Binary(vec![
-            ("+", ast::BinaryOp::Add),
-            ("-", ast::BinaryOp::Sub),
-        ]),
-        Operator::Binary(vec![
-            ("*", ast::BinaryOp::Mul),
-            ("//", ast::BinaryOp::FloorDivision),
-            ("%", ast::BinaryOp::Mod),
-        ]),
-        Operator::Prefix(vec![
-            ("!", ast::PrefixOp::Not),
-            ("-", ast::PrefixOp::Neg)
-        ]),
+        Operator::Comparison(hashmap! {
+            Token::EqEq => ast::ComparissonOp::Eq,
+            Token::BangEq => ast::ComparissonOp::Ne,
+            Token::Lt => ast::ComparissonOp::Lt,
+            Token::LtEq => ast::ComparissonOp::Le,
+            Token::Gt => ast::ComparissonOp::Gt,
+            Token::GtEq => ast::ComparissonOp::Ge,
+        }),
+        Operator::Binary(hashmap! {
+            Token::Plus => ast::BinaryOp::Add,
+            Token::Minus => ast::BinaryOp::Sub,
+        }),
+        Operator::Binary(hashmap! {
+            Token::Star => ast::BinaryOp::Mul,
+            Token::SlashSlash => ast::BinaryOp::FloorDivision,
+            Token::Mod => ast::BinaryOp::Mod
+        }),
+        Operator::Prefix(hashmap! {
+            Token::Minus => ast::PrefixOp::Neg,
+            Token::Bang => ast::PrefixOp::Not
+        })
     ];
 }
 
-pub fn parse(content: &str) -> ast::File {
-    parse_file(content).unwrap().1
+pub struct Parser {
+    code: std::collections::VecDeque<Token>,
 }
 
-fn parse_comment(input: &str) -> Result<()> {
-    let (input, _) = tuple((tag("#"), take_until("\n")))(input)?;
+impl Parser {
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Self {
+            code: tokens.into(),
+        }
+    }
 
-    Ok((input, ()))
-}
+    fn expect(&mut self, token: Token) {
+        let t = self.code.pop_front().unwrap();
+        if t != token {
+            panic!("Expected {token:?} found {t:?}.")
+        }
+    }
 
-fn parse_line_space(input: &str) -> Result<()> {
-    let (input, _) =
-        many0(alt((map(multispace1, |_| ()), parse_comment)))(input)?;
+    pub fn parse(mut self) -> ast::File {
+        let mut stmts = Vec::new();
+        while self.code.get(0).unwrap() != &Token::Eof {
+            stmts.push(self.parse_declaration());
+        }
+        ast::File(stmts.into_boxed_slice())
+    }
 
-    Ok((input, ()))
-}
+    fn parse_declaration(&mut self) -> ast::Declaration {
+        self.expect(Token::Expose);
+        let name = self.parse_ident();
+        self.expect(Token::OpenBracket);
+        self.expect(Token::CloseBracket);
+        let return_type = self.parse_type();
+        let body = self.parse_body();
 
-fn parse_file(input: &str) -> Result<ast::File> {
-    let (input, declarations) = many0(delimited(
-        parse_line_space,
-        parse_declaration,
-        parse_line_space,
-    ))(input)?;
-    let file = ast::File(declarations.into_boxed_slice());
+        ast::Declaration::Function(
+            ast::FunctionDeclration::ExposedFunction {
+                name,
+                return_type,
+                body,
+            },
+        )
+    }
 
-    let (input, _) = eof(input)?;
-    Ok((input, file))
-}
+    fn parse_ident(&mut self) -> ast::Ident {
+        let Token::Ident(ident) = self.code.pop_front().unwrap()
+        else {
+            panic!("expected ident")
+        };
+        ast::Ident(ident)
+    }
 
-fn parse_declaration(input: &str) -> Result<ast::Declaration> {
-    let (input, function) = parse_function(input)?;
-    let declaration = ast::Declaration::Function(function);
+    fn parse_type(&mut self) -> ast::Type {
+        match self.code.get(0).unwrap() {
+            Token::Ident(_) => ast::Type::Named(self.parse_ident()),
+            _ => {
+                let min = self.parse_num();
+                self.expect(Token::DotDot);
+                let max = self.parse_num();
+                ast::Type::Range(min, max)
+            }
+        }
+    }
 
-    Ok((input, declaration))
-}
+    fn parse_num(&mut self) -> i128 {
+        match self.code.pop_front().unwrap() {
+            Token::Minus => -self.parse_num(),
+            Token::Number(num) => num,
+            t => panic!("Not a valid number, got {t:?}"),
+        }
+    }
 
-fn parse_function(input: &str) -> Result<ast::FunctionDeclration> {
-    parse_function_exposed(input)
-}
+    fn parse_body(&mut self) -> ast::Body {
+        let mut stmt = Vec::new();
+        self.expect(Token::OpenCurly);
+        while self.code.get(0).unwrap() != &Token::CloseCurly {
+            stmt.push(self.parse_stmt());
+        }
+        self.expect(Token::CloseCurly);
+        ast::Body(stmt.into_boxed_slice())
+    }
 
-fn parse_function_exposed(
-    input: &str,
-) -> Result<ast::FunctionDeclration> {
-    let (input, _) = tag("expose")(input)?;
-    let (input, name) = preceded(multispace1, parse_ident)(input)?;
-    let (input, _) = preceded(multispace0, tag("()"))(input)?;
-    let (input, return_type) =
-        preceded(multispace0, parse_type)(input)?;
-    let (input, body) = preceded(multispace0, parse_body)(input)?;
+    fn parse_stmt(&mut self) -> ast::Statement {
+        match self.code.get(0).unwrap() {
+            Token::Assert => self.parse_assert(),
+            Token::Return => self.parse_return(),
+            Token::While => self.parse_while(),
+            Token::Let => self.parse_let(),
+            Token::If => self.parse_if(),
+            _ => self.parse_maybe_assignment(),
+        }
+    }
 
-    Ok((
-        input,
-        ast::FunctionDeclration::ExposedFunction {
-            name,
-            return_type,
-            body,
-        },
-    ))
-}
+    fn parse_let(&mut self) -> ast::Statement {
+        self.expect(Token::Let);
 
-fn parse_type(input: &str) -> Result<ast::Type> {
-    let (input, type_) = alt((
-        parse_range,
-        map(parse_ident, |ident| ast::Type::Named(ident)),
-    ))(input)?;
-    Ok((input, type_))
-}
+        let mutable = match self.code.get(0).unwrap() {
+            Token::Mut => {
+                self.code.pop_front();
+                true
+            }
+            _ => false,
+        };
 
-fn parse_range(input: &str) -> Result<ast::Type> {
-    let (input, min) = parse_num(input)?;
-    let (input, _) = tag("..")(input)?;
-    let (input, max) = parse_num(input)?;
+        let name = self.parse_ident();
+        self.expect(Token::Colon);
+        let type_ = self.parse_type();
+        self.expect(Token::Eq);
+        let expression = self.parse_expr();
+        self.expect(Token::SemiColon);
 
-    Ok((input, ast::Type::Range(min, max)))
-}
-
-fn parse_num(input: &str) -> Result<i128> {
-    let (input, result) =
-        recognize(preceded(opt(tag("-")), digit1))(input)?;
-    Ok((input, result.parse().unwrap()))
-}
-
-fn parse_body(input: &str) -> Result<ast::Body> {
-    let (input, stms) = delimited(
-        tag("{"),
-        many0(delimited(
-            parse_line_space,
-            parse_statement,
-            parse_line_space,
-        )),
-        tag("}"),
-    )(input)?;
-    let (input, _) = parse_line_space(input)?;
-    Ok((input, ast::Body(stms.into_boxed_slice())))
-}
-
-fn parse_statement(input: &str) -> Result<ast::Statement> {
-    alt((
-        parse_return,
-        parse_assert,
-        parse_var_binding,
-        parse_assignment,
-        parse_if,
-        parse_compound_assignment,
-        parse_while_loop,
-    ))(input)
-}
-
-fn parse_return(input: &str) -> Result<ast::Statement> {
-    let (input, _) = terminated(tag("return"), multispace1)(input)?;
-    let (input, expression) = terminated(
-        parse_expression,
-        pair(parse_line_space, tag(";")),
-    )(input)?;
-    Ok((input, ast::Statement::Return(expression)))
-}
-
-fn parse_assert(input: &str) -> Result<ast::Statement> {
-    let (input, _) = terminated(tag("assert"), multispace1)(input)?;
-    let (input, expression) = terminated(
-        parse_expression,
-        pair(parse_line_space, tag(";")),
-    )(input)?;
-    Ok((input, ast::Statement::Assert(expression)))
-}
-
-fn parse_var_binding(input: &str) -> Result<ast::Statement> {
-    let (input, _) = terminated(tag("let"), multispace1)(input)?;
-    let (input, mutable) =
-        opt(terminated(tag("mut"), multispace1))(input)?;
-    let (input, name) =
-        terminated(parse_ident, parse_line_space)(input)?;
-    let (input, _) = terminated(tag(":"), parse_line_space)(input)?;
-    let (input, type_) =
-        terminated(parse_type, parse_line_space)(input)?;
-    let (input, _) = terminated(tag("="), parse_line_space)(input)?;
-    let (input, value) =
-        terminated(parse_expression, parse_line_space)(input)?;
-    let (input, _) = terminated(tag(";"), parse_line_space)(input)?;
-
-    Ok((
-        input,
         ast::Statement::VaribleBinding {
             name,
             type_,
-            value,
-            mutable: mutable.is_some(),
-        },
-    ))
-}
-fn parse_assignment(input: &str) -> Result<ast::Statement> {
-    let (input, name) =
-        terminated(parse_ident, parse_line_space)(input)?;
-    let (input, _) = terminated(tag("="), parse_line_space)(input)?;
-    let (input, value) =
-        terminated(parse_expression, parse_line_space)(input)?;
-    let (input, _) = terminated(tag(";"), parse_line_space)(input)?;
+            value: expression,
+            mutable,
+        }
+    }
 
-    Ok((
-        input,
-        ast::Statement::Assign {
-            name,
-            expr: value,
-            op: None,
-        },
-    ))
-}
+    fn parse_while(&mut self) -> ast::Statement {
+        self.expect(Token::While);
+        let condition = self.parse_expr();
+        let body = self.parse_body();
 
-fn parse_compound_assignment(input: &str) -> Result<ast::Statement> {
-    let operators = OPERATORS
-        .iter()
-        .filter_map(|op| match op {
-            Operator::Binary(op) => Some(op),
-            _ => None,
-        })
-        .flatten();
-    let op_parsers = operators
-        .map(|(text, op)| {
-            move |input| map(tag(*text), |_| *op)(input)
-        })
-        .collect::<Vec<_>>();
-    let op_parser = to_alt(&op_parsers);
+        ast::Statement::WhileLoop { condition, body }
+    }
 
-    let (input, name) = parse_ident(input)?;
-    let (input, op) =
-        delimited(multispace0, op_parser, tag("="))(input)?;
-    let (input, expr) = terminated(
-        preceded(multispace0, parse_expression),
-        tuple((multispace0, tag(";"))),
-    )(input)?;
+    fn parse_assert(&mut self) -> ast::Statement {
+        self.expect(Token::Assert);
+        let expr = self.parse_expr();
+        self.expect(Token::SemiColon);
 
-    Ok((
-        input,
-        ast::Statement::Assign {
-            name,
-            op: Some(op),
-            expr,
-        },
-    ))
-}
+        ast::Statement::Assert(expr)
+    }
 
-fn parse_if(input: &str) -> Result<ast::Statement> {
-    let (input, _) = terminated(tag("if"), multispace1)(input)?;
-    let (input, condition) =
-        terminated(parse_expression, multispace1)(input)?;
-    let (input, body) = terminated(parse_body, multispace0)(input)?;
-    let (input, elif) = terminated(
-        many0(tuple((
-            delimited(
-                tuple((
-                    tag("else"),
-                    multispace1,
-                    tag("if"),
-                    multispace0,
-                )),
-                parse_expression,
-                multispace0,
-            ),
-            terminated(parse_body, multispace0),
-        ))),
-        multispace0,
-    )(input)?;
-    let (input, else_block) = opt(preceded(
-        terminated(tag("else"), multispace0),
-        parse_body,
-    ))(input)?;
+    fn parse_return(&mut self) -> ast::Statement {
+        self.expect(Token::Return);
+        let expr = self.parse_expr();
+        self.expect(Token::SemiColon);
 
-    Ok((
-        input,
-        ast::Statement::If {
-            condition,
-            body,
-            elif: elif.into_boxed_slice(),
-            else_block,
-        },
-    ))
-}
+        ast::Statement::Return(expr)
+    }
 
-fn parse_while_loop(input: &str) -> Result<ast::Statement> {
-    let (input, _) = tuple((tag("while"), multispace0))(input)?;
-    let (input, condition) =
-        terminated(parse_expression, multispace0)(input)?;
-    let (input, body) = parse_body(input)?;
-    Ok((input, ast::Statement::WhileLoop { condition, body }))
-}
+    fn parse_if(&mut self) -> ast::Statement {
+        self.expect(Token::If);
+        let condition = self.parse_expr();
+        let then_body = self.parse_body();
 
-fn parse_expression(input: &str) -> Result<ast::Expression> {
-    let (input, value) = parse_operator(0)(input)?;
-    Ok((input, value))
-}
-
-fn parse_operator(
-    level: usize,
-) -> impl Fn(&str) -> Result<ast::Expression> {
-    move |input: &str| {
-        let Some(operator) = OPERATORS.get(level) else {
-            return parse_group(input);
-        };
-
-        match operator {
-            Operator::Prefix(values) => alt((
-                to_alt(
-                    &values
-                        .iter()
-                        .map(|(value, op)| {
-                            move |input| {
-                                map(
-                                    preceded(
-                                        terminated(
-                                            tag(*value),
-                                            space0,
-                                        ),
-                                        parse_operator(level),
-                                    ),
-                                    |expr| {
-                                        ast::Expression::Prefix(
-                                            *op,
-                                            Box::new(expr),
-                                        )
-                                    },
-                                )(
-                                    input
-                                )
-                            }
-                        })
-                        .collect::<Vec<_>>(),
-                ),
-                parse_operator(level + 1),
-            ))(input),
-            Operator::Comparison(ops) => {
-                let (input, left) = parse_operator(level + 1)(input)?;
-
-                let parsers = ops
-                    .iter()
-                    .map(|(txt, res)| {
-                        |input| map(tag(*txt), |_| *res)(input)
-                    })
-                    .collect::<Vec<_>>();
-                let parser = to_alt(&parsers);
-
-                let (input, chains) = many0(tuple((
-                    preceded(space0, parser),
-                    preceded(space0, parse_operator(level + 1)),
-                )))(input)?;
-
-                if chains.is_empty() {
-                    Ok((input, left))
-                } else {
-                    Ok((
-                        input,
-                        ast::Expression::Comparison(
-                            Box::new(left),
-                            chains
-                                .into_iter()
-                                .map(|(op, expr)| {
-                                    (op, Box::new(expr))
-                                })
-                                .collect(),
-                        ),
-                    ))
-                }
-            }
-            Operator::Binary(ops) => {
-                // left ascoativity!
-
-                let parsers = ops
-                    .iter()
-                    .map(|(text, op)| {
-                        move |input| map(tag(*text), |_| *op)(input)
-                    })
-                    .collect::<Vec<_>>();
-                let mut op_parser = delimited(
-                    parse_line_space,
-                    to_alt(&parsers),
-                    parse_line_space,
-                );
-
-                let (mut input, mut expr) =
-                    parse_operator(level + 1)(input)?;
-                loop {
-                    match op_parser(input) {
-                        Err(_) => break,
-                        Ok((n_input, op)) => {
-                            let (n_input, right_side) =
-                                parse_operator(level + 1)(n_input)?;
-                            input = n_input;
-                            expr = ast::Expression::Binary(
-                                Box::new(expr),
-                                op,
-                                Box::new(right_side),
-                            );
+        let mut elif = Vec::new();
+        let mut else_block = None;
+        loop {
+            match self.code.get(0).unwrap() {
+                Token::Else => {
+                    self.expect(Token::Else);
+                    match self.code.get(0).unwrap() {
+                        Token::If => {
+                            self.expect(Token::If);
+                            let condition = self.parse_expr();
+                            let body = self.parse_body();
+                            elif.push((condition, body));
+                        }
+                        _ => {
+                            else_block = Some(self.parse_body());
+                            break;
                         }
                     }
                 }
+                _ => break,
+            }
+        }
 
-                Ok((input, expr))
+        ast::Statement::If {
+            condition,
+            body: then_body,
+            elif: elif.into_boxed_slice(),
+            else_block,
+        }
+    }
+
+    fn parse_maybe_assignment(&mut self) -> ast::Statement {
+        let target = self.parse_expr();
+        let op = match self.code.get(0).unwrap() {
+            Token::Eq => Some(None),
+            Token::PlusEq => Some(Some(ast::BinaryOp::Add)),
+            Token::MinusEq => Some(Some(ast::BinaryOp::Sub)),
+            Token::StarEq => Some(Some(ast::BinaryOp::Mul)),
+            Token::DivEq => Some(Some(ast::BinaryOp::FloorDivision)),
+            _ => None,
+        };
+        let result = if let Some(op) = op {
+            self.code.pop_front();
+            let expr = self.parse_expr();
+            ast::Statement::Assign { target, op, expr }
+        } else {
+            ast::Statement::Expr(target)
+        };
+        self.expect(Token::SemiColon);
+        result
+    }
+
+    fn parse_expr(&mut self) -> ast::Expression {
+        self.parse_operator(0)
+    }
+
+    fn parse_operator(&mut self, level: usize) -> ast::Expression {
+        let Some(operators) = OPERATORS.get(level) else {
+            return self.parse_group();
+        };
+
+        match operators {
+            Operator::Prefix(operators) => {
+                let token = self.code.get(0).unwrap();
+                if let Some(op) = operators.get(token) {
+                    self.code.pop_front();
+                    let expr = self.parse_operator(level);
+                    ast::Expression::Prefix(*op, Box::new(expr))
+                } else {
+                    self.parse_operator(level + 1)
+                }
+            }
+            Operator::Binary(operators) => {
+                let mut left = self.parse_operator(level + 1);
+                loop {
+                    match operators.get(self.code.get(0).unwrap()) {
+                        Some(op) => {
+                            self.code.pop_front();
+                            let right =
+                                self.parse_operator(level + 1);
+                            left = ast::Expression::Binary(
+                                Box::new(left),
+                                *op,
+                                Box::new(right),
+                            )
+                        }
+                        None => break,
+                    }
+                }
+
+                left
+            }
+            Operator::Comparison(operators) => {
+                let left = self.parse_operator(level + 1);
+                let mut chains = Vec::new();
+                loop {
+                    match operators.get(self.code.get(0).unwrap()) {
+                        Some(op) => {
+                            self.code.pop_front();
+                            let right =
+                                self.parse_operator(level + 1);
+                            chains.push((*op, Box::new(right)))
+                        }
+                        None => break,
+                    }
+                }
+
+                if chains.is_empty() {
+                    left
+                } else {
+                    ast::Expression::Comparison(
+                        Box::new(left),
+                        chains,
+                    )
+                }
             }
         }
     }
-}
 
-fn to_alt<'a, 'f, P, O>(
-    parsers: &'f [P],
-) -> impl Fn(&'a str) -> Result<O> + 'f
-where
-    P: Fn(&'a str) -> Result<O>,
-{
-    move |input| match parsers {
-        [a] => alt((a,))(input),
-        [a, b] => alt((a, b))(input),
-        [a, b, c] => alt((a, b, c))(input),
-        [a, b, c, d] => alt((a, b, c, d))(input),
-        [a, b, c, d, e] => alt((a, b, c, d, e))(input),
-        [a, b, c, d, e, f] => alt((a, b, c, d, e, f))(input),
-        [a, b, c, d, e, f, g] => alt((a, b, c, d, e, f, g))(input),
-        [a, b, c, d, e, f, g, h] => {
-            alt((a, b, c, d, e, f, g, h))(input)
+    fn parse_group(&mut self) -> ast::Expression {
+        match self.code.get(0).unwrap() {
+            Token::OpenBracket => {
+                self.code.pop_front();
+                let expr = self.parse_expr();
+                self.expect(Token::CloseBracket);
+                expr
+            }
+            _ => self.parse_literal(),
         }
-        [a, b, c, d, e, f, g, h, i] => {
-            alt((a, b, c, d, e, f, g, h, i))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j] => {
-            alt((a, b, c, d, e, f, g, h, i, j))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p))(
-                input,
-            )
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q] => {
-            alt((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q))(
-                input,
-            )
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r] => {
-            alt((
-                a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r,
-            ))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s] => {
-            alt((
-                a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r,
-                s,
-            ))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t] => {
-            alt((
-                a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r,
-                s, t,
-            ))(input)
-        }
-        [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u] => {
-            alt((
-                a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r,
-                s, t, u,
-            ))(input)
-        }
-        _ => panic!(),
     }
-}
 
-fn parse_group(input: &str) -> Result<ast::Expression> {
-    alt((
-        delimited(
-            delimited(parse_line_space, tag("("), parse_line_space),
-            parse_expression,
-            delimited(parse_line_space, tag(")"), parse_line_space),
-        ),
-        parse_literal,
-        map(parse_ident, |ident| ast::Expression::Identifier(ident)),
-    ))(input)
-}
-
-fn parse_literal(input: &str) -> Result<ast::Expression> {
-    let (input, value) = alt((
-        map(digit1, |val: &str| {
-            ast::Literal::Int(val.parse().unwrap())
-        }),
-        map(tag("false"), |_| ast::Literal::Bool(false)),
-        map(tag("true"), |_| ast::Literal::Bool(true)),
-    ))(input)?;
-
-    Ok((input, ast::Expression::Literal(value)))
-}
-
-fn parse_ident(input: &str) -> Result<ast::Ident> {
-    let (input, ident) = recognize(pair(
-        alpha1,
-        many0(alt((tag("_"), alphanumeric1))),
-    ))(input)?;
-    Ok((input, ast::Ident(ident.into())))
+    fn parse_literal(&mut self) -> ast::Expression {
+        match self.code.pop_front().unwrap() {
+            Token::Number(num) => {
+                ast::Expression::Literal(ast::Literal::Int(num))
+            }
+            Token::True => {
+                ast::Expression::Literal(ast::Literal::Bool(true))
+            }
+            Token::False => {
+                ast::Expression::Literal(ast::Literal::Bool(false))
+            }
+            Token::Ident(ident) => {
+                ast::Expression::Identifier(ast::Ident(ident))
+            }
+            t => panic!("Expected literal, got {t:?}"),
+        }
+    }
 }

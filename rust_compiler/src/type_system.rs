@@ -147,27 +147,27 @@ struct TypeNarrows(HashMap<ast::Ident, TypeNarrow>);
 impl TypeNarrow {
     fn narrow_type(
         &self,
-        operation: ast::Comparisson,
+        operation: ast::ComparissonOp,
         other_type: Range,
     ) -> Self {
         let (min, max) = match operation {
-            ast::Comparisson::Eq => (
+            ast::ComparissonOp::Eq => (
                 i128::max(self.0.min, other_type.min),
                 i128::min(self.0.max, other_type.max),
             ),
-            ast::Comparisson::Ne => (self.0.min, self.0.max), // TODO:: wrong,
-            ast::Comparisson::Lt => (
+            ast::ComparissonOp::Ne => (self.0.min, self.0.max), // TODO:: wrong,
+            ast::ComparissonOp::Lt => (
                 self.0.min,
                 i128::min(self.0.max, other_type.max - 1),
             ),
-            ast::Comparisson::Le => {
+            ast::ComparissonOp::Le => {
                 (self.0.min, i128::min(self.0.max, other_type.max))
             }
-            ast::Comparisson::Gt => (
+            ast::ComparissonOp::Gt => (
                 i128::max(self.0.min, other_type.min - 1),
                 self.0.max,
             ),
-            ast::Comparisson::Ge => {
+            ast::ComparissonOp::Ge => {
                 (i128::max(self.0.min, other_type.min), self.0.max)
             }
         };
@@ -189,7 +189,7 @@ impl TypeNarrow {
 impl TypeNarrows {
     fn narrow(
         self,
-        operation: ast::Comparisson,
+        operation: ast::ComparissonOp,
         (left_expr, left_ast): (TypedExpression, ast::Expression),
         (right_expr, right_ast): (TypedExpression, ast::Expression),
     ) -> Self {
@@ -204,12 +204,12 @@ impl TypeNarrows {
         };
 
         let complement = match operation {
-            ast::Comparisson::Eq => ast::Comparisson::Eq,
-            ast::Comparisson::Ne => ast::Comparisson::Ne,
-            ast::Comparisson::Lt => ast::Comparisson::Gt,
-            ast::Comparisson::Le => ast::Comparisson::Ge,
-            ast::Comparisson::Gt => ast::Comparisson::Lt,
-            ast::Comparisson::Ge => ast::Comparisson::Le,
+            ast::ComparissonOp::Eq => ast::ComparissonOp::Eq,
+            ast::ComparissonOp::Ne => ast::ComparissonOp::Ne,
+            ast::ComparissonOp::Lt => ast::ComparissonOp::Gt,
+            ast::ComparissonOp::Le => ast::ComparissonOp::Ge,
+            ast::ComparissonOp::Gt => ast::ComparissonOp::Lt,
+            ast::ComparissonOp::Ge => ast::ComparissonOp::Le,
         };
 
         let left_type = TypeNarrow(left_range)
@@ -329,6 +329,11 @@ impl TypeResolver {
         stmt: &ast::Statement,
     ) -> ir::Statement {
         match stmt {
+            ast::Statement::Expr(expr) => {
+                let (_, expr) =
+                    self.resolve_expression(expr).0.generic();
+                ir::Statement::Expression(expr)
+            }
             ast::Statement::Return(expr) => {
                 let return_type = *self.return_type.as_ref().unwrap();
                 let expr = self.resolve_expression(expr).0;
@@ -372,7 +377,11 @@ impl TypeResolver {
 
                 ir::Statement::Assign { name: id, value }
             }
-            ast::Statement::Assign { name, expr, op } => {
+            ast::Statement::Assign { target, expr, op } => {
+                let ast::Expression::Identifier(name) = target else {
+                    panic!("Only support name as target")
+                };
+
                 let (id, type_, mutable) =
                     *self.scope.vars.get(name).unwrap();
                 if !mutable {
@@ -602,34 +611,34 @@ impl TypeResolver {
 
                 let ops =
                     chains.iter().map(|(op, _)| match (signed, op) {
-                        (_, ast::Comparisson::Eq) => {
+                        (_, ast::ComparissonOp::Eq) => {
                             inkwell::IntPredicate::EQ
                         }
-                        (_, ast::Comparisson::Ne) => {
+                        (_, ast::ComparissonOp::Ne) => {
                             inkwell::IntPredicate::NE
                         }
-                        (false, ast::Comparisson::Lt) => {
+                        (false, ast::ComparissonOp::Lt) => {
                             inkwell::IntPredicate::ULT
                         }
-                        (false, ast::Comparisson::Gt) => {
+                        (false, ast::ComparissonOp::Gt) => {
                             inkwell::IntPredicate::UGT
                         }
-                        (false, ast::Comparisson::Le) => {
+                        (false, ast::ComparissonOp::Le) => {
                             inkwell::IntPredicate::ULE
                         }
-                        (false, ast::Comparisson::Ge) => {
+                        (false, ast::ComparissonOp::Ge) => {
                             inkwell::IntPredicate::UGE
                         }
-                        (true, ast::Comparisson::Lt) => {
+                        (true, ast::ComparissonOp::Lt) => {
                             inkwell::IntPredicate::SLT
                         }
-                        (true, ast::Comparisson::Gt) => {
+                        (true, ast::ComparissonOp::Gt) => {
                             inkwell::IntPredicate::SGT
                         }
-                        (true, ast::Comparisson::Le) => {
+                        (true, ast::ComparissonOp::Le) => {
                             inkwell::IntPredicate::SLE
                         }
-                        (true, ast::Comparisson::Ge) => {
+                        (true, ast::ComparissonOp::Ge) => {
                             inkwell::IntPredicate::SGE
                         }
                     });

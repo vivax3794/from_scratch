@@ -42,6 +42,7 @@ pub enum Statement {
         condition: BoolExpression,
         body: Body,
     },
+    Expression(Expression),
 }
 
 #[derive(Debug, Clone)]
