@@ -19,13 +19,14 @@
       {
         devShells.default = mkShell {
             buildInputs = [
-                gnumake
+                just
 
                 # Rust compiler
                 ( rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
                     extensions = ["rust-src" "llvm-tools-preview" "rust-analyzer"];
                 }) )
                 cargo-nextest
+                mold
 
                 llvmPackages_15.libllvm
 

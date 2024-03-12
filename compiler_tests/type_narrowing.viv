@@ -2,7 +2,7 @@ expose main() u8 {
     let x: 0..10 = 3;
     if x < 5 {
         let y: 0..5 = x;
-    } 
+    }
 
     return 0;
 }

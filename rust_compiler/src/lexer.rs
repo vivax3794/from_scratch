@@ -1,3 +1,9 @@
+//! The lexer is responsible for converting a string of characters into a list of tokens.
+use crate::Error;
+use crate::Spanned;
+
+/// A token
+#[allow(clippy::missing_docs_in_private_items)]
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Token {
     Number(i128),
@@ -35,33 +41,54 @@ pub enum Token {
     MinusEq,
     StarEq,
     DivEq,
-    ModEq,
     Bang,
     True,
     False,
     Eof,
 }
 
+/// The lexer
 pub struct Lexer {
+    /// The code to lex
     code: std::collections::VecDeque<char>,
+    /// The current position
+    pos: usize,
 }
 
 impl Lexer {
+    /// Create a new lexer
     pub fn new(code: &str) -> Self {
         let code = code.chars().collect();
-        Self { code }
+        Self { code, pos: 0 }
     }
 
-    pub fn lex(mut self) -> Vec<Token> {
+    /// Peek at the next character
+    fn peek(&self) -> Option<char> {
+        self.code.front().copied()
+    }
+
+    /// Get the next character
+    fn next(&mut self) -> Option<char> {
+        self.pos += 1;
+        self.code.pop_front()
+    }
+
+    /// Create a spanned token
+    fn token(&self, token: Token, length: usize) -> Spanned<Token> {
+        Spanned::new(token, self.pos - length, self.pos)
+    }
+
+    /// Lex the code
+    pub fn lex(mut self) -> Result<Vec<Spanned<Token>>, Error> {
         let mut tokens = Vec::new();
 
         self.eat_whitespace();
-        while !self.code.is_empty() {
-            let token = match self.code.pop_front().unwrap() {
-                '(' => Token::OpenBracket,
-                ')' => Token::CloseBracket,
-                '{' => Token::OpenCurly,
-                '}' => Token::CloseCurly,
+        while let Some(c) = self.next() {
+            let token = match c {
+                '(' => self.token(Token::OpenBracket, 1),
+                ')' => self.token(Token::CloseBracket, 1),
+                '{' => self.token(Token::OpenCurly, 1),
+                '}' => self.token(Token::CloseCurly, 1),
                 '+' => self
                     .lex_double(Token::Plus, &[('=', Token::PlusEq)]),
                 '*' => self
@@ -70,9 +97,9 @@ impl Lexer {
                     Token::Slash,
                     &[('=', Token::DivEq), ('/', Token::SlashSlash)],
                 ),
-                '%' => Token::Mod,
-                ':' => Token::Colon,
-                ';' => Token::SemiColon,
+                '%' => self.token(Token::Mod, 1),
+                ':' => self.token(Token::Colon, 1),
+                ';' => self.token(Token::SemiColon, 1),
                 '.' => self
                     .lex_double(Token::Dot, &[('.', Token::DotDot)]),
                 '-' => self.lex_double(
@@ -92,104 +119,123 @@ impl Lexer {
                 }
                 c if c.is_ascii_digit() => self.lex_number(c),
                 c if c.is_alphabetic() => self.lex_ident(c),
-                _ => panic!("Invalid char"),
+                _ => {
+                    return Err(Error::UnknownCharacter {
+                        character: c,
+                        span: miette::SourceSpan::new(
+                            (self.pos - 1).into(),
+                            1,
+                        ),
+                    })
+                }
             };
             tokens.push(token);
             self.eat_whitespace();
         }
-        tokens.push(Token::Eof);
+        tokens.push(self.token(Token::Eof, 0));
 
-        tokens
+        Ok(tokens)
     }
 
+    /// Eat whitespace from the code
     fn eat_whitespace(&mut self) {
         loop {
-            match self.code.get(0) {
+            match self.peek() {
                 Some('#') => self.eat_comment(),
                 Some(c) if c.is_whitespace() => {
-                    self.code.pop_front();
+                    self.next();
                 }
                 _ => break,
             }
         }
     }
 
+    /// Eat a comment from the code
     fn eat_comment(&mut self) {
         loop {
-            match self.code.get(0) {
-                None => break,
-                Some('\n') => break,
+            match self.peek() {
+                None | Some('\n') => break,
                 _ => {
-                    self.code.pop_front();
+                    self.next();
                 }
             }
         }
     }
 
+    /// Lex a double character token
+    /// gets given a list of characters and their corresponding tokens
+    /// and returns the token that matches the first character
+    /// if no character matches, it returns the single token
     fn lex_double(
         &mut self,
         single: Token,
         doubles: &[(char, Token)],
-    ) -> Token {
-        match self.code.get(0) {
+    ) -> Spanned<Token> {
+        match self.peek() {
             Some(c) => {
                 if let Some((_, token)) =
-                    doubles.iter().find(|(dc, _)| dc == c)
+                    doubles.iter().find(|(dc, _)| *dc == c)
                 {
-                    self.code.pop_front();
-                    token.clone()
+                    self.next();
+                    self.token(token.clone(), 2)
                 } else {
-                    single
+                    self.token(single, 1)
                 }
             }
-            _ => single,
+            _ => self.token(single, 1),
         }
     }
 
-    fn lex_number(&mut self, first: char) -> Token {
+    /// Lex a number
+    fn lex_number(&mut self, first: char) -> Spanned<Token> {
         let mut digits = vec![first];
         loop {
-            match self.code.get(0) {
-                None => break,
+            match self.peek() {
                 Some(c) if c.is_ascii_digit() => {
-                    let c = self.code.pop_front().unwrap();
+                    self.next();
                     digits.push(c);
                 }
-                Some(_) => break,
+                Some(_) | None => break,
             }
         }
 
+        let len = digits.len();
+        // TODO: can overflow
         let num =
             digits.into_iter().collect::<String>().parse().unwrap();
-        Token::Number(num)
+        self.token(Token::Number(num), len)
     }
 
-    fn lex_ident(&mut self, first: char) -> Token {
+    /// Lex an identifier
+    /// As well as keywords
+    fn lex_ident(&mut self, first: char) -> Spanned<Token> {
         let mut chars = vec![first];
         loop {
-            match self.code.get(0) {
-                None => break,
+            match self.peek() {
                 Some(c) if c.is_alphanumeric() => {
-                    let c = self.code.pop_front().unwrap();
-                    chars.push(c)
+                    self.next();
+                    chars.push(c);
                 }
-                Some(_) => break,
+                Some(_) | None => break,
             }
         }
 
         let s: String = chars.into_iter().collect();
         match &*s {
-            "expose" => Token::Expose,
-            "return" => Token::Return,
-            "assert" => Token::Assert,
-            "if" => Token::If,
-            "while" => Token::While,
-            "let" => Token::Let,
-            "mut" => Token::Mut,
-            "else" => Token::Else,
-            "true" => Token::True,
-            "false" => Token::False,
-            _ => Token::Ident(s.into_boxed_str()),
+            "expose" => self.token(Token::Expose, 6),
+            "return" => self.token(Token::Return, 6),
+            "assert" => self.token(Token::Assert, 6),
+            "if" => self.token(Token::If, 2),
+            "while" => self.token(Token::While, 5),
+            "let" => self.token(Token::Let, 3),
+            "mut" => self.token(Token::Mut, 3),
+            "else" => self.token(Token::Else, 4),
+            "true" => self.token(Token::True, 4),
+            "false" => self.token(Token::False, 5),
+            _ => {
+                let len = s.len();
+                self.token(Token::Ident(s.into_boxed_str()), len)
+            }
         }
     }
 }

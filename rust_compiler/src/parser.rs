@@ -1,3 +1,5 @@
+//! This module contains the parser for the language.
+
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
@@ -5,14 +7,22 @@ use maplit::hashmap;
 
 use crate::ast;
 use crate::lexer::Token;
+use crate::Error;
+use crate::Result;
+use crate::Spanned;
 
+/// The type of operator
 enum Operator {
+    /// A prefix operator
     Prefix(HashMap<Token, ast::PrefixOp>),
+    /// A binary operator
     Binary(HashMap<Token, ast::BinaryOp>),
+    /// A comparison operator
     Comparison(HashMap<Token, ast::ComparissonOp>),
 }
 
 lazy_static! {
+    /// The operators defined in precedence order
     static ref OPERATORS: Vec<Operator> = vec![
         Operator::Comparison(hashmap! {
             Token::EqEq => ast::ComparissonOp::Eq,
@@ -38,89 +48,162 @@ lazy_static! {
     ];
 }
 
+/// The parser
 pub struct Parser {
-    code: std::collections::VecDeque<Token>,
+    /// The code to parse
+    code: std::collections::VecDeque<Spanned<Token>>,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
+    /// Create a new parser
+    pub fn new(tokens: Vec<Spanned<Token>>) -> Self {
         Self {
             code: tokens.into(),
         }
     }
 
-    fn expect(&mut self, token: Token) {
-        let t = self.code.pop_front().unwrap();
-        if t != token {
-            panic!("Expected {token:?} found {t:?}.")
+    /// Expects a token and removes it from the code
+    // It is a better api to take the token by value as it avoids having & at the call site
+    #[allow(clippy::needless_pass_by_value)]
+    fn expect(&mut self, token: Token) -> Result<crate::Span> {
+        #[allow(clippy::expect_used)]
+        let t = self
+            .code
+            .pop_front()
+            .expect("We should never continue parsing after a EOF");
+        if t.value == token {
+            Ok(t.span)
+        } else {
+            let span = t.span.into();
+            Err(Error::UnexpectedToken {
+                token: t.value,
+                expected: format!("{token:?}"),
+                span,
+            })
         }
     }
 
-    pub fn parse(mut self) -> ast::File {
+    /// Peeks the next token including the span
+    fn peek_spanned(&self) -> &Spanned<Token> {
+        #[allow(clippy::expect_used)]
+        self.code
+            .front()
+            .expect("We should never continue parsing after a EOF")
+    }
+
+    /// Peeks the next token
+    fn peek(&self) -> &Token {
+        &self.peek_spanned().value
+    }
+
+    /// get the next spanned token
+    fn next_spanned(&mut self) -> Spanned<Token> {
+        #[allow(clippy::expect_used)]
+        self.code
+            .pop_front()
+            .expect("We should never continue parsing after a EOF")
+    }
+
+    /// Gets the next token
+    fn next(&mut self) -> Token {
+        self.next_spanned().value
+    }
+
+    /// Parses the code
+    pub fn parse(mut self) -> Result<ast::File> {
         let mut stmts = Vec::new();
-        while self.code.get(0).unwrap() != &Token::Eof {
-            stmts.push(self.parse_declaration());
+        while self.peek() != &Token::Eof {
+            stmts.push(self.parse_declaration()?);
         }
-        ast::File(stmts.into_boxed_slice())
+        Ok(ast::File(stmts.into_boxed_slice()))
     }
 
-    fn parse_declaration(&mut self) -> ast::Declaration {
-        self.expect(Token::Expose);
-        let name = self.parse_ident();
-        self.expect(Token::OpenBracket);
-        self.expect(Token::CloseBracket);
-        let return_type = self.parse_type();
-        let body = self.parse_body();
+    /// Parses a top level declaration
+    fn parse_declaration(&mut self) -> Result<ast::Declaration> {
+        self.expect(Token::Expose)?;
+        let name = self.parse_ident()?;
+        self.expect(Token::OpenBracket)?;
+        self.expect(Token::CloseBracket)?;
+        let return_type = self.parse_type()?;
+        let body = self.parse_body()?;
 
-        ast::Declaration::Function(
+        Ok(ast::Declaration::Function(
             ast::FunctionDeclration::ExposedFunction {
-                name,
+                name: name.value,
                 return_type,
                 body,
             },
-        )
+        ))
     }
 
-    fn parse_ident(&mut self) -> ast::Ident {
-        let Token::Ident(ident) = self.code.pop_front().unwrap()
-        else {
-            panic!("expected ident")
+    /// Parses an identifier
+    fn parse_ident(&mut self) -> Result<Spanned<ast::Ident>> {
+        let token = self.next_spanned();
+        let span = token.span;
+        let Token::Ident(ident) = token.value else {
+            let span = token.span.into();
+            return Err(Error::UnexpectedToken {
+                token: token.value,
+                expected: "identifier".to_owned(),
+                span,
+            });
         };
-        ast::Ident(ident)
+        Ok(span.with_value(ast::Ident(ident)))
     }
 
-    fn parse_type(&mut self) -> ast::Type {
-        match self.code.get(0).unwrap() {
-            Token::Ident(_) => ast::Type::Named(self.parse_ident()),
+    /// Parses a type
+    fn parse_type(&mut self) -> Result<Spanned<ast::Type>> {
+        if let Token::Ident(_) = self.peek() {
+            let ident = self.parse_ident()?;
+            Ok(ident.span.with_value(ast::Type::Named(ident.value)))
+        } else {
+            let min = self.parse_num()?;
+            self.expect(Token::DotDot)?;
+            let max = self.parse_num()?;
+            Ok(min
+                .span
+                .combine(max.span)
+                .with_value(ast::Type::Range(min.value, max.value)))
+        }
+    }
+
+    /// Parses a number
+    fn parse_num(&mut self) -> Result<Spanned<i128>> {
+        let token = self.next_spanned();
+        match token.value {
+            Token::Minus => {
+                let num = self.parse_num()?;
+                Ok(token
+                    .span
+                    .combine(num.span)
+                    .with_value(-num.value))
+            }
+            Token::Number(num) => Ok(token.span.with_value(num)),
             _ => {
-                let min = self.parse_num();
-                self.expect(Token::DotDot);
-                let max = self.parse_num();
-                ast::Type::Range(min, max)
+                let span = token.span.into();
+                Err(Error::UnexpectedToken {
+                    token: token.value,
+                    expected: "number".to_owned(),
+                    span,
+                })
             }
         }
     }
 
-    fn parse_num(&mut self) -> i128 {
-        match self.code.pop_front().unwrap() {
-            Token::Minus => -self.parse_num(),
-            Token::Number(num) => num,
-            t => panic!("Not a valid number, got {t:?}"),
-        }
-    }
-
-    fn parse_body(&mut self) -> ast::Body {
+    /// Parses a body including the curly braces
+    fn parse_body(&mut self) -> Result<ast::Body> {
         let mut stmt = Vec::new();
-        self.expect(Token::OpenCurly);
-        while self.code.get(0).unwrap() != &Token::CloseCurly {
-            stmt.push(self.parse_stmt());
+        self.expect(Token::OpenCurly)?;
+        while self.peek() != &Token::CloseCurly {
+            stmt.push(self.parse_stmt()?);
         }
-        self.expect(Token::CloseCurly);
-        ast::Body(stmt.into_boxed_slice())
+        self.expect(Token::CloseCurly)?;
+        Ok(ast::Body(stmt.into_boxed_slice()))
     }
 
-    fn parse_stmt(&mut self) -> ast::Statement {
-        match self.code.get(0).unwrap() {
+    /// Parses a statement
+    fn parse_stmt(&mut self) -> Result<ast::Statement> {
+        match self.peek() {
             Token::Assert => self.parse_assert(),
             Token::Return => self.parse_return(),
             Token::While => self.parse_while(),
@@ -130,95 +213,93 @@ impl Parser {
         }
     }
 
-    fn parse_let(&mut self) -> ast::Statement {
-        self.expect(Token::Let);
+    /// Parses a let statement
+    fn parse_let(&mut self) -> Result<ast::Statement> {
+        self.expect(Token::Let)?;
 
-        let mutable = match self.code.get(0).unwrap() {
+        let mutable = match self.peek() {
             Token::Mut => {
-                self.code.pop_front();
+                self.next();
                 true
             }
             _ => false,
         };
 
-        let name = self.parse_ident();
-        self.expect(Token::Colon);
-        let type_ = self.parse_type();
-        self.expect(Token::Eq);
-        let expression = self.parse_expr();
-        self.expect(Token::SemiColon);
+        let name = self.parse_ident()?;
+        self.expect(Token::Colon)?;
+        let type_ = self.parse_type()?;
+        self.expect(Token::Eq)?;
+        let expression = self.parse_expr()?;
+        self.expect(Token::SemiColon)?;
 
-        ast::Statement::VaribleBinding {
+        Ok(ast::Statement::VaribleBinding {
             name,
             type_,
             value: expression,
             mutable,
-        }
+        })
     }
 
-    fn parse_while(&mut self) -> ast::Statement {
-        self.expect(Token::While);
-        let condition = self.parse_expr();
-        let body = self.parse_body();
+    /// Parses a while loop
+    fn parse_while(&mut self) -> Result<ast::Statement> {
+        self.expect(Token::While)?;
+        let condition = self.parse_expr()?;
+        let body = self.parse_body()?;
 
-        ast::Statement::WhileLoop { condition, body }
+        Ok(ast::Statement::WhileLoop { condition, body })
     }
 
-    fn parse_assert(&mut self) -> ast::Statement {
-        self.expect(Token::Assert);
-        let expr = self.parse_expr();
-        self.expect(Token::SemiColon);
+    /// Parses an assert statement
+    fn parse_assert(&mut self) -> Result<ast::Statement> {
+        let assert_span = self.expect(Token::Assert)?;
+        let expr = self.parse_expr()?;
+        self.expect(Token::SemiColon)?;
 
-        ast::Statement::Assert(expr)
+        Ok(ast::Statement::Assert(expr, assert_span))
     }
 
-    fn parse_return(&mut self) -> ast::Statement {
-        self.expect(Token::Return);
-        let expr = self.parse_expr();
-        self.expect(Token::SemiColon);
+    /// Parses a return statement
+    fn parse_return(&mut self) -> Result<ast::Statement> {
+        self.expect(Token::Return)?;
+        let expr = self.parse_expr()?;
+        self.expect(Token::SemiColon)?;
 
-        ast::Statement::Return(expr)
+        Ok(ast::Statement::Return(expr))
     }
 
-    fn parse_if(&mut self) -> ast::Statement {
-        self.expect(Token::If);
-        let condition = self.parse_expr();
-        let then_body = self.parse_body();
+    /// Parses an if statement
+    fn parse_if(&mut self) -> Result<ast::Statement> {
+        self.expect(Token::If)?;
+        let condition = self.parse_expr()?;
+        let then_body = self.parse_body()?;
 
         let mut elif = Vec::new();
         let mut else_block = None;
-        loop {
-            match self.code.get(0).unwrap() {
-                Token::Else => {
-                    self.expect(Token::Else);
-                    match self.code.get(0).unwrap() {
-                        Token::If => {
-                            self.expect(Token::If);
-                            let condition = self.parse_expr();
-                            let body = self.parse_body();
-                            elif.push((condition, body));
-                        }
-                        _ => {
-                            else_block = Some(self.parse_body());
-                            break;
-                        }
-                    }
-                }
-                _ => break,
+        while let Token::Else = self.peek() {
+            self.expect(Token::Else)?;
+            if self.peek() == &Token::If {
+                self.expect(Token::If)?;
+                let condition = self.parse_expr()?;
+                let body = self.parse_body()?;
+                elif.push((condition, body));
+            } else {
+                else_block = Some(self.parse_body()?);
+                break;
             }
         }
 
-        ast::Statement::If {
+        Ok(ast::Statement::If {
             condition,
             body: then_body,
             elif: elif.into_boxed_slice(),
             else_block,
-        }
+        })
     }
 
-    fn parse_maybe_assignment(&mut self) -> ast::Statement {
-        let target = self.parse_expr();
-        let op = match self.code.get(0).unwrap() {
+    /// Parses an assignment or an expression
+    fn parse_maybe_assignment(&mut self) -> Result<ast::Statement> {
+        let target = self.parse_expr()?;
+        let op = match self.peek() {
             Token::Eq => Some(None),
             Token::PlusEq => Some(Some(ast::BinaryOp::Add)),
             Token::MinusEq => Some(Some(ast::BinaryOp::Sub)),
@@ -228,96 +309,101 @@ impl Parser {
         };
         let result = if let Some(op) = op {
             self.code.pop_front();
-            let expr = self.parse_expr();
+            let expr = self.parse_expr()?;
             ast::Statement::Assign { target, op, expr }
         } else {
             ast::Statement::Expr(target)
         };
-        self.expect(Token::SemiColon);
-        result
+        self.expect(Token::SemiColon)?;
+        Ok(result)
     }
 
-    fn parse_expr(&mut self) -> ast::Expression {
+    /// Parses an expression
+    fn parse_expr(&mut self) -> Result<Spanned<ast::Expression>> {
         self.parse_operator(0)
     }
 
-    fn parse_operator(&mut self, level: usize) -> ast::Expression {
+    /// Parses an operator expression
+    fn parse_operator(
+        &mut self,
+        level: usize,
+    ) -> Result<Spanned<ast::Expression>> {
         let Some(operators) = OPERATORS.get(level) else {
             return self.parse_group();
         };
 
         match operators {
             Operator::Prefix(operators) => {
-                let token = self.code.get(0).unwrap();
-                if let Some(op) = operators.get(token) {
-                    self.code.pop_front();
-                    let expr = self.parse_operator(level);
-                    ast::Expression::Prefix(*op, Box::new(expr))
+                if let Some(op) = operators.get(self.peek()) {
+                    let token = self.next_spanned();
+                    let expr = self.parse_operator(level)?;
+                    let span = token.span.combine(expr.span);
+                    let result =
+                        ast::Expression::Prefix(*op, Box::new(expr));
+                    Ok(span.with_value(result))
                 } else {
                     self.parse_operator(level + 1)
                 }
             }
             Operator::Binary(operators) => {
-                let mut left = self.parse_operator(level + 1);
-                loop {
-                    match operators.get(self.code.get(0).unwrap()) {
-                        Some(op) => {
-                            self.code.pop_front();
-                            let right =
-                                self.parse_operator(level + 1);
-                            left = ast::Expression::Binary(
-                                Box::new(left),
-                                *op,
-                                Box::new(right),
-                            )
-                        }
-                        None => break,
-                    }
+                let mut left = self.parse_operator(level + 1)?;
+                while let Some(op) = operators.get(self.peek()) {
+                    self.code.pop_front();
+                    let right = self.parse_operator(level + 1)?;
+                    let span = left.span.combine(right.span);
+                    left = span.with_value(ast::Expression::Binary(
+                        Box::new(left),
+                        *op,
+                        Box::new(right),
+                    ));
                 }
 
-                left
+                Ok(left)
             }
             Operator::Comparison(operators) => {
-                let left = self.parse_operator(level + 1);
+                let left = self.parse_operator(level + 1)?;
                 let mut chains = Vec::new();
-                loop {
-                    match operators.get(self.code.get(0).unwrap()) {
-                        Some(op) => {
-                            self.code.pop_front();
-                            let right =
-                                self.parse_operator(level + 1);
-                            chains.push((*op, Box::new(right)))
-                        }
-                        None => break,
-                    }
+                while let Some(op) = operators.get(self.peek()) {
+                    self.code.pop_front();
+                    let right = self.parse_operator(level + 1)?;
+                    chains.push((*op, Box::new(right)));
                 }
 
                 if chains.is_empty() {
-                    left
+                    Ok(left)
                 } else {
-                    ast::Expression::Comparison(
+                    #[allow(clippy::expect_used)]
+                    let last = &chains
+                        .last()
+                        .expect("We have at least one element")
+                        .1;
+                    let span = left.span.combine(last.span);
+                    Ok(span.with_value(ast::Expression::Comparison(
                         Box::new(left),
                         chains,
-                    )
+                    )))
                 }
             }
         }
     }
 
-    fn parse_group(&mut self) -> ast::Expression {
-        match self.code.get(0).unwrap() {
+    /// Parses a parenthesized expression or a literal
+    fn parse_group(&mut self) -> Result<Spanned<ast::Expression>> {
+        match self.peek() {
             Token::OpenBracket => {
-                self.code.pop_front();
-                let expr = self.parse_expr();
-                self.expect(Token::CloseBracket);
-                expr
+                self.next();
+                let expr = self.parse_expr()?;
+                self.expect(Token::CloseBracket)?;
+                Ok(expr)
             }
             _ => self.parse_literal(),
         }
     }
 
-    fn parse_literal(&mut self) -> ast::Expression {
-        match self.code.pop_front().unwrap() {
+    /// Parses a literal or an identifier
+    fn parse_literal(&mut self) -> Result<Spanned<ast::Expression>> {
+        let token = self.next_spanned();
+        let result = match token.value {
             Token::Number(num) => {
                 ast::Expression::Literal(ast::Literal::Int(num))
             }
@@ -330,7 +416,15 @@ impl Parser {
             Token::Ident(ident) => {
                 ast::Expression::Identifier(ast::Ident(ident))
             }
-            t => panic!("Expected literal, got {t:?}"),
-        }
+            _ => {
+                let span = token.span.into();
+                return Err(Error::UnexpectedToken {
+                    token: token.value,
+                    expected: "literal or identifier".to_owned(),
+                    span,
+                });
+            }
+        };
+        Ok(token.span.with_value(result))
     }
 }
