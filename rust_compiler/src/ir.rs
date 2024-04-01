@@ -12,6 +12,8 @@ pub enum Declaration {
     Function {
         /// The name of the function
         name: FunctionName,
+        /// The arguments to the function.
+        arguments: Box<[(Identifier, Type)]>,
         /// The return type of the function
         return_type: Type,
         /// The body of the function

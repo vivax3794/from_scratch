@@ -70,18 +70,48 @@ impl TypeResolver {
     /// Resolve a function declaration.
     fn resolve_function(&mut self, func: &ast::FunctionDeclration) -> Result<ir::Declaration> {
         match func {
-            ast::FunctionDeclration::ExposedFunction {
+            ast::FunctionDeclration::Function {
+                mangled,
                 name,
+                arguments,
                 return_type,
                 body,
             } => {
                 let return_type = self.resolve_type(return_type)?;
                 self.function_info.return_type = return_type;
+
+                self.new_scope();
+                let mut args = Vec::new();
+                for arg in arguments.iter() {
+                    let type_ = self.resolve_type(&arg.type_)?;
+                    let id = ir::Identifier::new();
+                    self.function_info.vars.push((id, type_.value));
+                    self.scope.insert(
+                        arg.name.value.clone(),
+                        scope::Variable {
+                            id,
+                            type_: type_.value,
+                            true_type: type_.value,
+                            mutable: arg.mutable,
+                            span_name: arg.name.span,
+                            span_type: arg.type_.span,
+                        },
+                    );
+                    args.push((id, type_.value.underlying()));
+                }
                 let body = self.resolve_body(body)?;
+                self.pop_scope();
+
+                let name = if *mangled {
+                    ir::FunctionName::Mangled(ir::Identifier::new())
+                } else {
+                    ir::FunctionName::Named(name.0.clone())
+                };
 
                 Ok(ir::Declaration::Function {
-                    name: ir::FunctionName::Named(name.0.clone()),
+                    name,
                     return_type: return_type.value.underlying(),
+                    arguments: args.into_boxed_slice(),
                     body,
                     vars: std::mem::take(&mut self.function_info.vars)
                         .into_iter()

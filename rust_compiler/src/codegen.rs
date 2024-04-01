@@ -148,14 +148,26 @@ impl<'ctx> CodeGen<'ctx> {
             ir::Declaration::Function {
                 name,
                 return_type,
+                arguments,
                 body,
                 vars,
             } => {
                 self.function_vars.clear();
 
                 let return_type = self.llvm_type(*return_type);
-                let signature = return_type.fn_type(&[], false);
+                let mut argument_types = vec![];
+                for (_, type_) in arguments.iter() {
+                    argument_types.push(self.llvm_type(*type_).into());
+                }
+
+                let signature = return_type.fn_type(&argument_types, false);
                 let function = self.module.add_function(&name.str(), signature, None);
+                function.get_params().iter().zip(arguments.iter()).for_each(
+                    |(param, (id, type_))| {
+                        self.function_vars
+                            .insert(*id, (param.into_pointer_value(), *type_));
+                    },
+                );
 
                 let entry_block = self.context.append_basic_block(function, "entry");
                 self.builder.position_at_end(entry_block);

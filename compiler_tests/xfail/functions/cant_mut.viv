@@ -1,0 +1,8 @@
+def baz(x: 0..10) 0..10 {
+    x += 5;
+    return x;
+}
+
+expose main() u8 {
+    return 0;
+}

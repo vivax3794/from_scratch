@@ -19,14 +19,29 @@ pub enum Declaration {
 pub enum FunctionDeclration {
     /// A function that does not have its name mangled
     /// and can be called from other languages
-    ExposedFunction {
+    Function {
+        /// Should the function be mangeld
+        mangled: bool,
         /// Non mangled name
         name: Ident,
+        /// The arguments to the function.
+        arguments: Box<[Argument]>,
         /// The return type of the function
         return_type: Spanned<Type>,
         /// The body of the function
         body: Body,
     },
+}
+
+/// A function argument
+#[derive(Debug)]
+pub struct Argument {
+    /// Is it mutable
+    pub mutable: bool,
+    /// The name of the argument
+    pub name: Spanned<Ident>,
+    /// The type of the argument
+    pub type_: Spanned<Type>,
 }
 
 /// A type

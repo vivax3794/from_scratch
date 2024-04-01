@@ -121,20 +121,63 @@ impl Parser {
 
     /// Parses a top level declaration
     fn parse_declaration(&mut self) -> Result<ast::Declaration> {
-        self.expect(Token::Expose)?;
+        let token = self.next_spanned();
+        let exposed = match token.value {
+            Token::Expose => true,
+            Token::Def => false,
+            _ => {
+                return Err(Error::UnexpectedToken {
+                    token: token.value,
+                    expected: "expose or def".to_owned(),
+                    span: token.span.into(),
+                });
+            }
+        };
+
         let name = self.parse_ident()?;
         self.expect(Token::OpenBracket)?;
+        let mut arguments = Vec::new();
+        while self.peek() != &Token::CloseBracket {
+            arguments.push(self.parse_argument()?);
+            if self.peek() == &Token::Comma {
+                self.next();
+            } else {
+                break;
+            }
+        }
         self.expect(Token::CloseBracket)?;
         let return_type = self.parse_type()?;
         let body = self.parse_body()?;
 
         Ok(ast::Declaration::Function(
-            ast::FunctionDeclration::ExposedFunction {
+            ast::FunctionDeclration::Function {
+                mangled: !exposed,
                 name: name.value,
+                arguments: arguments.into_boxed_slice(),
                 return_type,
                 body,
             },
         ))
+    }
+
+    fn parse_argument(&mut self) -> Result<ast::Argument> {
+        let mutable = match self.peek() {
+            Token::Mut => {
+                self.next();
+                true
+            }
+            _ => false,
+        };
+
+        let name = self.parse_ident()?;
+        self.expect(Token::Colon)?;
+        let type_ = self.parse_type()?;
+
+        Ok(ast::Argument {
+            mutable,
+            name,
+            type_,
+        })
     }
 
     /// Parses an identifier
@@ -358,7 +401,7 @@ impl Parser {
             Operator::Binary(operators) => {
                 let mut left = self.parse_operator(level + 1)?;
                 while let Some(op) = operators.get(self.peek()) {
-                    self.code.pop_front();
+                    self.next();
                     let right = self.parse_operator(level + 1)?;
                     let span = left.span.combine(right.span);
                     left = span.with_value(ast::Expression::Binary(

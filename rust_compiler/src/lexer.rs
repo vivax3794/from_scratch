@@ -46,6 +46,8 @@ pub enum Token {
     True,
     False,
     AssertType,
+    Def,
+    Comma,
     Eof,
 }
 
@@ -108,6 +110,7 @@ impl Lexer {
                 '!' => self.lex_double(Token::Bang, &[('=', Token::BangEq)]),
                 '<' => self.lex_double(Token::Lt, &[('=', Token::LtEq)]),
                 '>' => self.lex_double(Token::Gt, &[('=', Token::GtEq)]),
+                ',' => self.token(Token::Comma, 1),
                 c if c.is_ascii_digit() => self.lex_number(c),
                 c if c.is_alphabetic() => self.lex_ident(c),
                 _ => {
@@ -214,6 +217,7 @@ impl Lexer {
             "true" => self.token(Token::True, 4),
             "false" => self.token(Token::False, 5),
             "assert_type" => self.token(Token::AssertType, 11),
+            "def" => self.token(Token::Def, 3),
             _ => {
                 let len = s.len();
                 self.token(Token::Ident(s.into_boxed_str()), len)

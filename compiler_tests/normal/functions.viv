@@ -1,0 +1,25 @@
+def foo(x: 0..10) 10..20 {
+    return x + 10;
+} 
+
+def bar(x: 0..10, y: 0..10) 0..20 {
+    return x + y;
+}
+
+def baz(mut x: 0..10) 0..10 {
+    x += 5;
+    return x;
+}
+
+expose main() u8 {
+    assert_type foo(0) = 10..20;
+    assert foo(5) == 15;
+    assert foo(10) == 20;
+
+    assert bar(3, 4) == 7;
+    
+    assert baz(2) == 7;
+    assert baz(8) == 10;
+
+    return 0;
+}
