@@ -46,6 +46,8 @@ pub struct Body(pub Box<[Statement]>);
 /// A statement
 #[derive(Debug)]
 pub enum Statement {
+    /// Used as a dummy value
+    Nop,
     /// A return statement
     Return(Expression),
     /// An assert statement
@@ -157,10 +159,7 @@ pub enum BoolExpression {
     /// A negation
     Not(Box<BoolExpression>),
     /// A comparison chain
-    Comparison(
-        IntExpression,
-        Box<[(inkwell::IntPredicate, IntExpression)]>,
-    ),
+    Comparison(IntExpression, Box<[(inkwell::IntPredicate, IntExpression)]>),
     /// A variable
     LoadVar(Identifier),
 }

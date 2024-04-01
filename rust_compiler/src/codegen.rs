@@ -2,11 +2,7 @@
 
 // If the ir is invalid that is a compiler bug and we dont want to spend time on writing error
 // handling for that.
-#![allow(
-    clippy::unreachable,
-    clippy::expect_used,
-    clippy::unwrap_used
-)]
+#![allow(clippy::unreachable, clippy::expect_used, clippy::unwrap_used)]
 
 use std::collections::HashMap;
 
@@ -28,10 +24,7 @@ pub struct CodeGen<'ctx> {
     fpm: inkwell::passes::PassManager<inkwell::module::Module<'ctx>>,
 
     /// The variables in the current function
-    function_vars: HashMap<
-        ir::Identifier,
-        (inkwell::values::PointerValue<'ctx>, ir::Type),
-    >,
+    function_vars: HashMap<ir::Identifier, (inkwell::values::PointerValue<'ctx>, ir::Type)>,
 }
 
 impl<'ctx> CodeGen<'ctx> {
@@ -93,6 +86,7 @@ impl<'ctx> CodeGen<'ctx> {
         let functions = [
             ("add.sat", false),
             ("sub.sat", false),
+            // Sat means that it doesnt wrap around
             ("mul.fix.sat", true),
             ("div.fix.sat", true),
             ("min", false),
@@ -103,24 +97,18 @@ impl<'ctx> CodeGen<'ctx> {
         for sign in ["s", "u"] {
             for width in widths {
                 for (name, is_fixed) in functions {
-                    let function_name =
-                        format!("llvm.{sign}{name}.i{width}");
+                    let function_name = format!("llvm.{sign}{name}.i{width}");
 
                     let int_type = self.int_type(width);
-                    let mut arguments =
-                        vec![int_type.into(), int_type.into()];
+                    let mut arguments = vec![int_type.into(), int_type.into()];
                     if is_fixed {
                         arguments.push(self.int_type(32).into());
                     }
 
-                    let function_type =
-                        int_type.fn_type(&arguments, false);
+                    let function_type = int_type.fn_type(&arguments, false);
 
-                    self.module.add_function(
-                        &function_name,
-                        function_type,
-                        None,
-                    );
+                    self.module
+                        .add_function(&function_name, function_type, None);
                 }
             }
         }
@@ -138,17 +126,10 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
     /// Get the LLVM type for a given ir type
-    fn llvm_type(
-        &self,
-        type_: ir::Type,
-    ) -> inkwell::types::BasicTypeEnum<'ctx> {
+    fn llvm_type(&self, type_: ir::Type) -> inkwell::types::BasicTypeEnum<'ctx> {
         match type_ {
-            ir::Type::Int(width) => {
-                self.int_type(width).as_basic_type_enum()
-            }
-            ir::Type::Bool => {
-                self.context.bool_type().as_basic_type_enum()
-            }
+            ir::Type::Int(width) => self.int_type(width).as_basic_type_enum(),
+            ir::Type::Bool => self.context.bool_type().as_basic_type_enum(),
         }
     }
 
@@ -174,21 +155,13 @@ impl<'ctx> CodeGen<'ctx> {
 
                 let return_type = self.llvm_type(*return_type);
                 let signature = return_type.fn_type(&[], false);
-                let function = self.module.add_function(
-                    &name.str(),
-                    signature,
-                    None,
-                );
+                let function = self.module.add_function(&name.str(), signature, None);
 
-                let entry_block = self
-                    .context
-                    .append_basic_block(function, "entry");
+                let entry_block = self.context.append_basic_block(function, "entry");
                 self.builder.position_at_end(entry_block);
 
                 for (id, type_) in vars.iter() {
-                    let ptr = self
-                        .builder
-                        .build_alloca(self.llvm_type(*type_), "Var");
+                    let ptr = self.builder.build_alloca(self.llvm_type(*type_), "Var");
                     self.function_vars.insert(*id, (ptr, *type_));
                 }
 
@@ -207,6 +180,7 @@ impl<'ctx> CodeGen<'ctx> {
     /// Generate the LLVM code for a statement
     fn generate_statement(&mut self, stmt: &ir::Statement) {
         match stmt {
+            ir::Statement::Nop => {}
             ir::Statement::Expression(expr) => {
                 self.generate_expression(expr);
             }
@@ -235,11 +209,7 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
     /// Generate the LLVM code for a while loop
-    fn generate_while_loop(
-        &mut self,
-        condition: &ir::BoolExpression,
-        body: &ir::Body,
-    ) {
+    fn generate_while_loop(&mut self, condition: &ir::BoolExpression, body: &ir::Body) {
         let current_block = self.builder.get_insert_block().unwrap();
         let condition_block = self
             .context
@@ -254,11 +224,8 @@ impl<'ctx> CodeGen<'ctx> {
         self.builder.build_unconditional_branch(condition_block);
         self.builder.position_at_end(condition_block);
         let condition = self.generate_bool_expression(condition);
-        self.builder.build_conditional_branch(
-            condition,
-            body_block,
-            continue_block,
-        );
+        self.builder
+            .build_conditional_branch(condition, body_block, continue_block);
 
         self.builder.position_at_end(body_block);
         self.generate_body(body);
@@ -277,21 +244,14 @@ impl<'ctx> CodeGen<'ctx> {
             .context
             .insert_basic_block_after(current_block, "Continue");
 
-        let mut true_block = self
-            .context
-            .insert_basic_block_after(current_block, "True");
-        let mut false_block = self
-            .context
-            .insert_basic_block_after(true_block, "False");
+        let mut true_block = self.context.insert_basic_block_after(current_block, "True");
+        let mut false_block = self.context.insert_basic_block_after(true_block, "False");
 
         let mut index = 0;
         for (condition, body) in conditions {
             let condition = self.generate_bool_expression(condition);
-            self.builder.build_conditional_branch(
-                condition,
-                true_block,
-                false_block,
-            );
+            self.builder
+                .build_conditional_branch(condition, true_block, false_block);
 
             self.builder.position_at_end(true_block);
             self.generate_body(body);
@@ -301,12 +261,8 @@ impl<'ctx> CodeGen<'ctx> {
 
             index += 1;
             if index != conditions.len() {
-                true_block = self
-                    .context
-                    .insert_basic_block_after(false_block, "True");
-                false_block = self
-                    .context
-                    .insert_basic_block_after(true_block, "False");
+                true_block = self.context.insert_basic_block_after(false_block, "True");
+                false_block = self.context.insert_basic_block_after(true_block, "False");
             }
         }
 
@@ -321,20 +277,14 @@ impl<'ctx> CodeGen<'ctx> {
     fn generate_assert(&mut self, expr: &ir::BoolExpression) {
         let value = self.generate_bool_expression(expr);
 
-        let current_block =
-            self.builder.get_insert_block().expect("No block");
-        let fail_branch = self
-            .context
-            .insert_basic_block_after(current_block, "Fail");
+        let current_block = self.builder.get_insert_block().expect("No block");
+        let fail_branch = self.context.insert_basic_block_after(current_block, "Fail");
         let continue_branch = self
             .context
             .insert_basic_block_after(fail_branch, "Continue");
 
-        self.builder.build_conditional_branch(
-            value,
-            continue_branch,
-            fail_branch,
-        );
+        self.builder
+            .build_conditional_branch(value, continue_branch, fail_branch);
 
         self.builder.position_at_end(fail_branch);
         let abort = self.module.get_function("abort").unwrap();
@@ -350,12 +300,8 @@ impl<'ctx> CodeGen<'ctx> {
         expr: &ir::Expression,
     ) -> inkwell::values::BasicValueEnum<'ctx> {
         match expr {
-            ir::Expression::Int(expr) => self
-                .generate_int_expression(expr)
-                .as_basic_value_enum(),
-            ir::Expression::Bool(expr) => self
-                .generate_bool_expression(expr)
-                .as_basic_value_enum(),
+            ir::Expression::Int(expr) => self.generate_int_expression(expr).as_basic_value_enum(),
+            ir::Expression::Bool(expr) => self.generate_bool_expression(expr).as_basic_value_enum(),
         }
     }
 
@@ -376,26 +322,17 @@ impl<'ctx> CodeGen<'ctx> {
             } => {
                 let value = self.generate_int_expression(value);
                 if *signed {
-                    self.builder.build_int_s_extend(
-                        value,
-                        self.int_type(*target),
-                        "Signed_Cast",
-                    )
+                    self.builder
+                        .build_int_s_extend(value, self.int_type(*target), "Signed_Cast")
                 } else {
-                    self.builder.build_int_z_extend(
-                        value,
-                        self.int_type(*target),
-                        "Unsigned_Cast",
-                    )
+                    self.builder
+                        .build_int_z_extend(value, self.int_type(*target), "Unsigned_Cast")
                 }
             }
             ir::IntExpression::Truncate { value, target } => {
                 let value = self.generate_int_expression(value);
-                self.builder.build_int_truncate(
-                    value,
-                    self.int_type(*target),
-                    "Trunc",
-                )
+                self.builder
+                    .build_int_truncate(value, self.int_type(*target), "Trunc")
             }
             ir::IntExpression::Neg(value) => {
                 let value = self.generate_int_expression(value);
@@ -408,12 +345,9 @@ impl<'ctx> CodeGen<'ctx> {
                 signed,
                 bounds,
                 width,
-            } => self.generate_int_binary(
-                left, op, right, *signed, bounds, *width,
-            ),
+            } => self.generate_int_binary(left, op, right, *signed, bounds, *width),
             ir::IntExpression::LoadVar(id) => {
-                let (ptr, type_) =
-                    *self.function_vars.get(id).unwrap();
+                let (ptr, type_) = *self.function_vars.get(id).unwrap();
                 self.builder
                     .build_load(self.llvm_type(type_), ptr, "Var")
                     .into_int_value()
@@ -436,17 +370,10 @@ impl<'ctx> CodeGen<'ctx> {
 
         if let ir::IntBinaryOp::Remainder = op {
             return if signed {
-                self.builder.build_int_signed_rem(
-                    left,
-                    right,
-                    "Signed Rem",
-                )
+                self.builder.build_int_signed_rem(left, right, "Signed Rem")
             } else {
-                self.builder.build_int_unsigned_rem(
-                    left,
-                    right,
-                    "Signed Rem",
-                )
+                self.builder
+                    .build_int_unsigned_rem(left, right, "Signed Rem")
             };
         }
 
@@ -463,11 +390,9 @@ impl<'ctx> CodeGen<'ctx> {
 
         let mut arguments = vec![left.into(), right.into()];
         if is_fixed {
-            arguments
-                .push(self.int_type(32).const_int(0, false).into());
+            arguments.push(self.int_type(32).const_int(0, false).into());
         }
-        let mut result =
-            self.builder.build_call(function, &arguments, "Result");
+        let mut result = self.builder.build_call(function, &arguments, "Result");
 
         let min = format!("llvm.{signed}min.i{width}");
         let max = format!("llvm.{signed}max.i{width}");
@@ -480,9 +405,7 @@ impl<'ctx> CodeGen<'ctx> {
                 min,
                 &[
                     result.try_as_basic_value().unwrap_left().into(),
-                    self.int_type(width)
-                        .const_int(bounds.1, false)
-                        .into(),
+                    self.int_type(width).const_int(bounds.1, false).into(),
                 ],
                 "Result",
             );
@@ -490,9 +413,7 @@ impl<'ctx> CodeGen<'ctx> {
                 max,
                 &[
                     result.try_as_basic_value().unwrap_left().into(),
-                    self.int_type(width)
-                        .const_int(bounds.0, false)
-                        .into(),
+                    self.int_type(width).const_int(bounds.0, false).into(),
                 ],
                 "Result",
             );
@@ -511,40 +432,30 @@ impl<'ctx> CodeGen<'ctx> {
         expr: &ir::BoolExpression,
     ) -> inkwell::values::IntValue<'ctx> {
         match expr {
-            ir::BoolExpression::Literal(value) => self
-                .context
-                .bool_type()
-                .const_int(u64::from(*value), false),
+            ir::BoolExpression::Literal(value) => {
+                self.context.bool_type().const_int(u64::from(*value), false)
+            }
             ir::BoolExpression::Not(expr) => {
                 let value = self.generate_bool_expression(expr);
                 self.builder.build_not(value, "Bool_Not")
             }
             ir::BoolExpression::Comparison(left, chains) => {
                 let mut previous = self.generate_int_expression(left);
-                let mut result =
-                    self.context.bool_type().const_int(1, false);
+                let mut result = self.context.bool_type().const_int(1, false);
 
                 for (op, expr) in chains.iter() {
                     let expr = self.generate_int_expression(expr);
-                    let this_result = self.builder.build_int_compare(
-                        *op,
-                        previous,
-                        expr,
-                        "Comp_Result",
-                    );
-                    result = self.builder.build_and(
-                        result,
-                        this_result,
-                        "Final_Result",
-                    );
+                    let this_result =
+                        self.builder
+                            .build_int_compare(*op, previous, expr, "Comp_Result");
+                    result = self.builder.build_and(result, this_result, "Final_Result");
                     previous = expr;
                 }
 
                 result
             }
             ir::BoolExpression::LoadVar(id) => {
-                let (ptr, type_) =
-                    *self.function_vars.get(id).unwrap();
+                let (ptr, type_) = *self.function_vars.get(id).unwrap();
                 self.builder
                     .build_load(self.llvm_type(type_), ptr, "Var")
                     .into_int_value()

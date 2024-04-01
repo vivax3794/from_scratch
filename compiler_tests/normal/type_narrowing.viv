@@ -1,0 +1,41 @@
+expose main() u8 {
+    let mut x: 0..10 = 3;
+    if x < 5 {
+        assert_type x = 0..4;
+        x = 2;
+        assert_type x = 0..10;
+    }
+
+    let x: 0..10 = 5;
+    if x > 20 {
+        # narrowing should fail
+        assert_type x = 0..10;
+    }
+
+    if x < 5 {
+        assert_type x = 0..4;
+    } else if x > 5 {
+        assert_type x = 6..10;
+    } else if x <= 5 {
+        assert_type x = 0..5;
+    } else if x == 5 {
+        assert_type x = 5..5;
+    } else if x != 5 {
+        assert_type x = 0..10;
+    }
+
+
+    if x < 20 {
+        assert_type x = 0..10;
+    } else if x > -10 {
+        assert_type x = 0..10;
+    } else if x <= 20 {
+        assert_type x = 0..10;
+    } else if x == 100 {
+        assert_type x = 0..10;
+    } else if x != -20 {
+        assert_type x = 0..10;
+    }
+
+    return 0;
+}

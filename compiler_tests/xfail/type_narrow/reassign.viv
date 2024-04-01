@@ -1,6 +1,7 @@
 expose main() u8 {
-    let x: 0..10 = 3;
+    let mut x: 0..10 = 5;
     if x < 5 {
+        x = 10;
         let y: 0..5 = x;
     }
 

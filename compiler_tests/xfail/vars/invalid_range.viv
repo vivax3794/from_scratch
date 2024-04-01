@@ -1,0 +1,5 @@
+expose main() u8 {
+    let x: 20..10 = 15;
+   
+    return x;
+}

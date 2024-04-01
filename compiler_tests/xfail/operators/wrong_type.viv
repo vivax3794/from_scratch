@@ -1,0 +1,5 @@
+expose main() u8 {
+    true + true;
+
+    return 0;
+}

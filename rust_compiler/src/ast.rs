@@ -1,7 +1,7 @@
 //! This module contains the AST for the language.
 //! This represents the structure of the syntax.
 
-use crate::{Span, Spanned};
+use crate::span::{Span, Spanned};
 
 /// The root of the AST
 #[derive(Debug)]
@@ -56,6 +56,8 @@ pub enum Statement {
     /// An assert statement
     /// This will panic if the expression is false
     Assert(Spanned<Expression>, Span),
+    /// A type assertion
+    AssertType(Spanned<Type>, Spanned<Expression>),
     /// A variable binding
     VaribleBinding {
         /// The name of the variable
@@ -73,7 +75,7 @@ pub enum Statement {
         /// currently only supports identifiers
         target: Spanned<Expression>,
         /// Potential binary operation for compound assignment (e.g. +=, -=, *=, /=, %=, etc.)
-        op: Option<BinaryOp>,
+        op: Option<Spanned<BinaryOp>>,
         /// The value to assign / the right hand side of the operation
         expr: Spanned<Expression>,
     },
@@ -110,11 +112,7 @@ pub enum Expression {
         Vec<(ComparissonOp, Box<Spanned<Expression>>)>,
     ),
     /// A binary operation
-    Binary(
-        Box<Spanned<Expression>>,
-        BinaryOp,
-        Box<Spanned<Expression>>,
-    ),
+    Binary(Box<Spanned<Expression>>, BinaryOp, Box<Spanned<Expression>>),
     /// A variable
     Identifier(Ident),
 }
@@ -132,6 +130,8 @@ pub enum BinaryOp {
     FloorDivision,
     /// Modulus
     Mod,
+    /// Exponentiation
+    Pow,
 }
 
 /// A comparison operation

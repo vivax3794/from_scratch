@@ -5,11 +5,9 @@ use std::collections::HashMap;
 use lazy_static::lazy_static;
 use maplit::hashmap;
 
-use crate::ast;
 use crate::lexer::Token;
-use crate::Error;
-use crate::Result;
-use crate::Spanned;
+use crate::span::Spanned;
+use crate::{ast, Error, Result};
 
 /// The type of operator
 enum Operator {
@@ -41,6 +39,9 @@ lazy_static! {
             Token::SlashSlash => ast::BinaryOp::FloorDivision,
             Token::Mod => ast::BinaryOp::Mod
         }),
+        Operator::Binary(hashmap! {
+            Token::StarStar => ast::BinaryOp::Pow,
+        }),
         Operator::Prefix(hashmap! {
             Token::Minus => ast::PrefixOp::Neg,
             Token::Bang => ast::PrefixOp::Not
@@ -65,7 +66,7 @@ impl Parser {
     /// Expects a token and removes it from the code
     // It is a better api to take the token by value as it avoids having & at the call site
     #[allow(clippy::needless_pass_by_value)]
-    fn expect(&mut self, token: Token) -> Result<crate::Span> {
+    fn expect(&mut self, token: Token) -> Result<crate::span::Span> {
         #[allow(clippy::expect_used)]
         let t = self
             .code
@@ -173,10 +174,7 @@ impl Parser {
         match token.value {
             Token::Minus => {
                 let num = self.parse_num()?;
-                Ok(token
-                    .span
-                    .combine(num.span)
-                    .with_value(-num.value))
+                Ok(token.span.combine(num.span).with_value(-num.value))
             }
             Token::Number(num) => Ok(token.span.with_value(num)),
             _ => {
@@ -205,6 +203,7 @@ impl Parser {
     fn parse_stmt(&mut self) -> Result<ast::Statement> {
         match self.peek() {
             Token::Assert => self.parse_assert(),
+            Token::AssertType => self.parse_assert_type(),
             Token::Return => self.parse_return(),
             Token::While => self.parse_while(),
             Token::Let => self.parse_let(),
@@ -258,6 +257,17 @@ impl Parser {
         Ok(ast::Statement::Assert(expr, assert_span))
     }
 
+    /// Parses an assert type statement
+    fn parse_assert_type(&mut self) -> Result<ast::Statement> {
+        self.expect(Token::AssertType)?;
+        let expr = self.parse_expr()?;
+        self.expect(Token::Eq)?;
+        let type_ = self.parse_type()?;
+        self.expect(Token::SemiColon)?;
+
+        Ok(ast::Statement::AssertType(type_, expr))
+    }
+
     /// Parses a return statement
     fn parse_return(&mut self) -> Result<ast::Statement> {
         self.expect(Token::Return)?;
@@ -308,9 +318,13 @@ impl Parser {
             _ => None,
         };
         let result = if let Some(op) = op {
-            self.code.pop_front();
+            let op_span = self.code.pop_front().unwrap().span;
             let expr = self.parse_expr()?;
-            ast::Statement::Assign { target, op, expr }
+            ast::Statement::Assign {
+                target,
+                op: op.map(|op| op_span.with_value(op)),
+                expr,
+            }
         } else {
             ast::Statement::Expr(target)
         };
@@ -324,10 +338,7 @@ impl Parser {
     }
 
     /// Parses an operator expression
-    fn parse_operator(
-        &mut self,
-        level: usize,
-    ) -> Result<Spanned<ast::Expression>> {
+    fn parse_operator(&mut self, level: usize) -> Result<Spanned<ast::Expression>> {
         let Some(operators) = OPERATORS.get(level) else {
             return self.parse_group();
         };
@@ -338,8 +349,7 @@ impl Parser {
                     let token = self.next_spanned();
                     let expr = self.parse_operator(level)?;
                     let span = token.span.combine(expr.span);
-                    let result =
-                        ast::Expression::Prefix(*op, Box::new(expr));
+                    let result = ast::Expression::Prefix(*op, Box::new(expr));
                     Ok(span.with_value(result))
                 } else {
                     self.parse_operator(level + 1)
@@ -373,15 +383,9 @@ impl Parser {
                     Ok(left)
                 } else {
                     #[allow(clippy::expect_used)]
-                    let last = &chains
-                        .last()
-                        .expect("We have at least one element")
-                        .1;
+                    let last = &chains.last().expect("We have at least one element").1;
                     let span = left.span.combine(last.span);
-                    Ok(span.with_value(ast::Expression::Comparison(
-                        Box::new(left),
-                        chains,
-                    )))
+                    Ok(span.with_value(ast::Expression::Comparison(Box::new(left), chains)))
                 }
             }
         }
@@ -404,18 +408,10 @@ impl Parser {
     fn parse_literal(&mut self) -> Result<Spanned<ast::Expression>> {
         let token = self.next_spanned();
         let result = match token.value {
-            Token::Number(num) => {
-                ast::Expression::Literal(ast::Literal::Int(num))
-            }
-            Token::True => {
-                ast::Expression::Literal(ast::Literal::Bool(true))
-            }
-            Token::False => {
-                ast::Expression::Literal(ast::Literal::Bool(false))
-            }
-            Token::Ident(ident) => {
-                ast::Expression::Identifier(ast::Ident(ident))
-            }
+            Token::Number(num) => ast::Expression::Literal(ast::Literal::Int(num)),
+            Token::True => ast::Expression::Literal(ast::Literal::Bool(true)),
+            Token::False => ast::Expression::Literal(ast::Literal::Bool(false)),
+            Token::Ident(ident) => ast::Expression::Identifier(ast::Ident(ident)),
             _ => {
                 let span = token.span.into();
                 return Err(Error::UnexpectedToken {

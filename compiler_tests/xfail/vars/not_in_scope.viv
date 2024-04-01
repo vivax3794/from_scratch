@@ -1,0 +1,7 @@
+expose main() u8 {
+    if true {
+        let x: u8 = 10;
+    } 
+   
+    return x;
+}

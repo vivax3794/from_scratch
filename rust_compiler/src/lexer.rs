@@ -1,6 +1,6 @@
 //! The lexer is responsible for converting a string of characters into a list of tokens.
+use crate::span::Spanned;
 use crate::Error;
-use crate::Spanned;
 
 /// A token
 #[allow(clippy::missing_docs_in_private_items)]
@@ -18,6 +18,7 @@ pub enum Token {
     Plus,
     Minus,
     Star,
+    StarStar,
     SemiColon,
     Slash,
     SlashSlash,
@@ -44,6 +45,7 @@ pub enum Token {
     Bang,
     True,
     False,
+    AssertType,
     Eof,
 }
 
@@ -89,10 +91,10 @@ impl Lexer {
                 ')' => self.token(Token::CloseBracket, 1),
                 '{' => self.token(Token::OpenCurly, 1),
                 '}' => self.token(Token::CloseCurly, 1),
-                '+' => self
-                    .lex_double(Token::Plus, &[('=', Token::PlusEq)]),
-                '*' => self
-                    .lex_double(Token::Star, &[('=', Token::StarEq)]),
+                '+' => self.lex_double(Token::Plus, &[('=', Token::PlusEq)]),
+                '*' => {
+                    self.lex_double(Token::Star, &[('=', Token::StarEq), ('*', Token::StarStar)])
+                }
                 '/' => self.lex_double(
                     Token::Slash,
                     &[('=', Token::DivEq), ('/', Token::SlashSlash)],
@@ -100,32 +102,18 @@ impl Lexer {
                 '%' => self.token(Token::Mod, 1),
                 ':' => self.token(Token::Colon, 1),
                 ';' => self.token(Token::SemiColon, 1),
-                '.' => self
-                    .lex_double(Token::Dot, &[('.', Token::DotDot)]),
-                '-' => self.lex_double(
-                    Token::Minus,
-                    &[('=', Token::MinusEq)],
-                ),
-                '=' => {
-                    self.lex_double(Token::Eq, &[('=', Token::EqEq)])
-                }
-                '!' => self
-                    .lex_double(Token::Bang, &[('=', Token::BangEq)]),
-                '<' => {
-                    self.lex_double(Token::Lt, &[('=', Token::LtEq)])
-                }
-                '>' => {
-                    self.lex_double(Token::Gt, &[('=', Token::GtEq)])
-                }
+                '.' => self.lex_double(Token::Dot, &[('.', Token::DotDot)]),
+                '-' => self.lex_double(Token::Minus, &[('=', Token::MinusEq)]),
+                '=' => self.lex_double(Token::Eq, &[('=', Token::EqEq)]),
+                '!' => self.lex_double(Token::Bang, &[('=', Token::BangEq)]),
+                '<' => self.lex_double(Token::Lt, &[('=', Token::LtEq)]),
+                '>' => self.lex_double(Token::Gt, &[('=', Token::GtEq)]),
                 c if c.is_ascii_digit() => self.lex_number(c),
                 c if c.is_alphabetic() => self.lex_ident(c),
                 _ => {
                     return Err(Error::UnknownCharacter {
                         character: c,
-                        span: miette::SourceSpan::new(
-                            (self.pos - 1).into(),
-                            1,
-                        ),
+                        span: miette::SourceSpan::new((self.pos - 1).into(), 1),
                     })
                 }
             };
@@ -166,16 +154,10 @@ impl Lexer {
     /// gets given a list of characters and their corresponding tokens
     /// and returns the token that matches the first character
     /// if no character matches, it returns the single token
-    fn lex_double(
-        &mut self,
-        single: Token,
-        doubles: &[(char, Token)],
-    ) -> Spanned<Token> {
+    fn lex_double(&mut self, single: Token, doubles: &[(char, Token)]) -> Spanned<Token> {
         match self.peek() {
             Some(c) => {
-                if let Some((_, token)) =
-                    doubles.iter().find(|(dc, _)| *dc == c)
-                {
+                if let Some((_, token)) = doubles.iter().find(|(dc, _)| *dc == c) {
                     self.next();
                     self.token(token.clone(), 2)
                 } else {
@@ -201,8 +183,7 @@ impl Lexer {
 
         let len = digits.len();
         // TODO: can overflow
-        let num =
-            digits.into_iter().collect::<String>().parse().unwrap();
+        let num = digits.into_iter().collect::<String>().parse().unwrap();
         self.token(Token::Number(num), len)
     }
 
@@ -212,7 +193,7 @@ impl Lexer {
         let mut chars = vec![first];
         loop {
             match self.peek() {
-                Some(c) if c.is_alphanumeric() => {
+                Some(c) if c.is_alphanumeric() || c == '_' => {
                     self.next();
                     chars.push(c);
                 }
@@ -232,6 +213,7 @@ impl Lexer {
             "else" => self.token(Token::Else, 4),
             "true" => self.token(Token::True, 4),
             "false" => self.token(Token::False, 5),
+            "assert_type" => self.token(Token::AssertType, 11),
             _ => {
                 let len = s.len();
                 self.token(Token::Ident(s.into_boxed_str()), len)
