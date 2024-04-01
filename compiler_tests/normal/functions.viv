@@ -11,6 +11,25 @@ def baz(mut x: 0..10) 0..10 {
     return x;
 }
 
+def spam() bool {
+    return true;
+}
+
+def a1() u8 {
+    return a2();
+}
+
+def a2() u8 {
+    return 10;
+}
+
+def fib(n: 0..10) u8 {
+    if n > 1 {
+        return fib(n - 1) + fib(n - 2) -> 0..255;
+    } 
+    return n;
+}
+
 expose main() u8 {
     assert_type foo(0) = 10..20;
     assert foo(5) == 15;
@@ -20,6 +39,12 @@ expose main() u8 {
     
     assert baz(2) == 7;
     assert baz(8) == 10;
+
+    assert spam();
+    assert a1() == 10;
+
+    assert fib(4) == 3;
+    assert fib(10) == 55;
 
     return 0;
 }

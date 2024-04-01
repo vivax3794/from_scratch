@@ -414,10 +414,21 @@ pub fn cast_expr_to_target_width(
 pub fn implicit_convert_to_type(
     expr: TypedExpression,
     target_type: &Type,
+    reason: impl Into<Option<span::Span>>,
 ) -> Result<TypedExpression> {
-    match expr {
-        TypedExpression::Int(range, expr) => {
-            let target_width = target_type.int(expr.span)?.width;
+    match target_type {
+        Type::Range(target_range) => {
+            if !target_type.is_sub(&expr.type_()) {
+                return Err(Error::TypeMismatch {
+                    expected: target_type.type_str(),
+                    actual: expr.type_str(),
+                    span: expr.span().into(),
+                    reason: reason.into().map(Into::into),
+                });
+            }
+
+            let (range, expr) = expr.int(reason)?;
+            let target_width = target_range.width;
             Ok(TypedExpression::Int(
                 {
                     let mut range = range;
@@ -428,7 +439,10 @@ pub fn implicit_convert_to_type(
                     .with_value(cast_expr_to_target_width(expr.value, range, target_width)),
             ))
         }
-        TypedExpression::Bool(expr) => Ok(TypedExpression::Bool(expr)),
+        Type::Boolean => {
+            let expr = expr.bool(reason)?;
+            Ok(TypedExpression::Bool(expr))
+        }
     }
 }
 

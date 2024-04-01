@@ -161,6 +161,35 @@ pub enum Error {
         #[label]
         span: miette::SourceSpan,
     },
+    /// Invalid scope item type
+    #[error("Invalid scope item type, expected {expected}")]
+    InvalidScopeItem {
+        /// The span of the scope item
+        #[label]
+        span: miette::SourceSpan,
+        /// The type that was expected
+        expected: String,
+    },
+    /// Invalid function call target    
+    #[error("Invalid function call target")]
+    InvalidFunctionCallTarget {
+        /// The span of the function target
+        #[label("Expected function type, got {type_}")]
+        span: miette::SourceSpan,
+        /// The type of the function target
+        type_: String,
+    },
+    /// Function argument count is wrong
+    #[error("Function argument count is wrong, expected {expected}, got {got}")]
+    FunctionArgumentCount {
+        /// The expected argument count
+        expected: usize,
+        /// The actual argument count
+        got: usize,
+        /// The span of the function call
+        #[label]
+        span: miette::SourceSpan,
+    },
 }
 
 /// A result type with the error type set to the custom error type

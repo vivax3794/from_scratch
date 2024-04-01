@@ -1,4 +1,4 @@
-use super::{types, TypeResolver};
+use super::{scope, types, TypeResolver};
 use crate::{ast, ir, span, Error, Result};
 
 impl TypeResolver {
@@ -9,9 +9,13 @@ impl TypeResolver {
     ) -> Result<(types::TypedExpression, types::TypeNarrows)> {
         match &expr_ast.value {
             ast::Expression::Identifier(ident) => {
-                let var_data = self.scope.get(ident).ok_or(Error::VariableNotFound {
-                    span: expr_ast.span.into(),
-                })?;
+                let var_data = self
+                    .scope
+                    .get(ident)
+                    .ok_or(Error::VariableNotFound {
+                        span: expr_ast.span.into(),
+                    })?
+                    .variable(expr_ast.span)?;
 
                 Ok((
                     var_data.type_.load_var(var_data.id, expr_ast.span),
@@ -28,7 +32,110 @@ impl TypeResolver {
             ast::Expression::Binary(left, op, right) => {
                 self.resolve_binary(left, right, *op, expr_ast.span)
             }
+            ast::Expression::Call {
+                function,
+                arguments,
+            } => self.resolve_call(function, arguments, expr_ast.span),
+            ast::Expression::Cast { type_, expr } => {
+                let (expr, _) = self.resolve_expression(expr)?;
+                let type_ = self.resolve_type(type_)?;
+
+                let (range, expr) = expr.int(None)?;
+                let target_range = type_.value.int(expr_ast.span)?;
+
+                let expr = if range.width < target_range.width {
+                    types::cast_range_to_width(range, range.width, expr.value)
+                } else {
+                    expr.value
+                };
+
+                let result_range = types::Range {
+                    min: target_range.min,
+                    max: target_range.max,
+                    width: u8::max(range.width, target_range.width),
+                };
+                let expr = ir::IntExpression::Cast {
+                    target_min: target_range.min as u64,
+                    target_max: target_range.max as u64,
+                    signed: target_range.signed() || range.signed(),
+                    width: result_range.width,
+                    value: Box::new(expr),
+                };
+
+                Ok((
+                    types::TypedExpression::Int(result_range, expr_ast.span.with_value(expr)),
+                    types::TypeNarrows::default(),
+                ))
+            }
         }
+    }
+
+    /// Resolve a function call
+    fn resolve_call(
+        &mut self,
+        function: &span::Spanned<ast::Expression>,
+        arguments: &[span::Spanned<ast::Expression>],
+        span: span::Span,
+    ) -> Result<(types::TypedExpression, types::TypeNarrows)> {
+        match &function.value {
+            ast::Expression::Identifier(iden) => {
+                let func = self
+                    .scope
+                    .get(&iden)
+                    .ok_or(Error::VariableNotFound {
+                        span: function.span.into(),
+                    })?
+                    .function(function.span)?
+                    .clone();
+                Ok((
+                    self.resolve_free_function(&func, arguments, span)?,
+                    types::TypeNarrows::default(),
+                ))
+            }
+            _ => {
+                let (expr, _) = self.resolve_expression(function)?;
+                Err(Error::InvalidFunctionCallTarget {
+                    span: function.span.into(),
+                    type_: expr.type_str(),
+                })
+            }
+        }
+    }
+
+    /// Resolve a free standing function call
+    fn resolve_free_function(
+        &mut self,
+        func: &scope::FunctionInfo,
+        arguments: &[span::Spanned<ast::Expression>],
+        span: span::Span,
+    ) -> Result<types::TypedExpression> {
+        if func.arguments.len() != arguments.len() {
+            return Err(Error::FunctionArgumentCount {
+                got: arguments.len(),
+                expected: func.arguments.len(),
+                span: span.into(),
+            });
+        }
+        let mut args = Vec::new();
+        for (arg, (_, var)) in arguments.iter().zip(func.arguments.iter()) {
+            let (expr, _) = self.resolve_expression(arg)?;
+
+            let expr = types::implicit_convert_to_type(expr, &var.type_, var.span_type)?;
+            args.push(expr.generic().1.value);
+        }
+
+        let call = ir::Call::FreeStanding {
+            function: func.name.clone(),
+            arguments: args.into_boxed_slice(),
+        };
+        Ok(match func.return_type.value {
+            types::Type::Boolean => {
+                types::TypedExpression::Bool(span.with_value(ir::BoolExpression::Call(call)))
+            }
+            types::Type::Range(range) => {
+                types::TypedExpression::Int(range, span.with_value(ir::IntExpression::Call(call)))
+            }
+        })
     }
 
     /// Resolve a binary operator.
@@ -122,6 +229,12 @@ impl TypeResolver {
                     type_: "int".to_owned(),
                     op_span: span.into(),
                 });
+            }
+            ast::BinaryOp::And => {
+                let new_range =
+                    types::Range::new(0, i128::min(left_range.max, right_range.max), span)?;
+
+                (new_range, ir::IntBinaryOp::And)
             }
         };
 

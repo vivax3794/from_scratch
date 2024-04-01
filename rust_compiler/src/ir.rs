@@ -136,6 +136,21 @@ pub enum IntExpression {
     },
     /// A variable
     LoadVar(Identifier),
+    /// A function call returning a integer
+    Call(Call),
+    /// A cast
+    Cast {
+        /// The type to cast to
+        target_min: u64,
+        /// The type to cast to
+        target_max: u64,
+        /// If the operation is signed
+        signed: bool,
+        /// The width of the expression
+        width: u8,
+        /// The expression to cast
+        value: Box<IntExpression>,
+    },
 }
 
 /// A integer binary operation
@@ -151,6 +166,8 @@ pub enum IntBinaryOp {
     FloorDivision,
     /// A modulus
     Remainder,
+    /// A and
+    And,
 }
 
 /// A boolean expression
@@ -164,6 +181,20 @@ pub enum BoolExpression {
     Comparison(IntExpression, Box<[(inkwell::IntPredicate, IntExpression)]>),
     /// A variable
     LoadVar(Identifier),
+    /// A function call returning a boolean
+    Call(Call),
+}
+
+/// A function call
+#[derive(Debug, Clone)]
+pub enum Call {
+    /// A free standing function call
+    FreeStanding {
+        /// The function to call
+        function: FunctionName,
+        /// The arguments to the function
+        arguments: Box<[Expression]>,
+    },
 }
 
 /// A identifier

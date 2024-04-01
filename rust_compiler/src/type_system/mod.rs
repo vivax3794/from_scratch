@@ -6,6 +6,8 @@ mod types;
 mod expressions;
 mod statements;
 
+use std::mem;
+
 use crate::{ast, ir, span, Error, Result};
 
 /// Information about a function.
@@ -52,23 +54,29 @@ impl TypeResolver {
 
     /// Resolve a file.
     pub fn resolve_file(&mut self, file: &ast::File) -> Result<ir::File> {
-        Ok(ir::File(
-            file.0
-                .iter()
-                .map(|decl| self.resolve_declaration(decl))
-                .collect::<Result<_>>()?,
-        ))
-    }
-
-    /// Resolve a top level declaration.
-    fn resolve_declaration(&mut self, decl: &ast::Declaration) -> Result<ir::Declaration> {
-        match decl {
-            ast::Declaration::Function(function) => self.resolve_function(function),
+        let mut funcs = Vec::new();
+        for item in file.0.iter() {
+            match item {
+                ast::Declaration::Function(func) => {
+                    let (func, body) = self.resolve_function(func)?;
+                    funcs.push((func, body));
+                }
+            }
         }
+
+        let mut decls = Vec::new();
+        for (func, body) in funcs {
+            decls.push(self.resolve_function_body(func, body)?);
+        }
+
+        Ok(ir::File(decls.into_boxed_slice()))
     }
 
     /// Resolve a function declaration.
-    fn resolve_function(&mut self, func: &ast::FunctionDeclration) -> Result<ir::Declaration> {
+    fn resolve_function<'a>(
+        &mut self,
+        func: &'a ast::FunctionDeclration,
+    ) -> Result<(scope::FunctionInfo, &'a ast::Body)> {
         match func {
             ast::FunctionDeclration::Function {
                 mangled,
@@ -78,48 +86,74 @@ impl TypeResolver {
                 body,
             } => {
                 let return_type = self.resolve_type(return_type)?;
-                self.function_info.return_type = return_type;
-
-                self.new_scope();
-                let mut args = Vec::new();
+                let mut args_vars = Vec::new();
                 for arg in arguments.iter() {
                     let type_ = self.resolve_type(&arg.type_)?;
                     let id = ir::Identifier::new();
-                    self.function_info.vars.push((id, type_.value));
-                    self.scope.insert(
-                        arg.name.value.clone(),
-                        scope::Variable {
-                            id,
-                            type_: type_.value,
-                            true_type: type_.value,
-                            mutable: arg.mutable,
-                            span_name: arg.name.span,
-                            span_type: arg.type_.span,
-                        },
-                    );
-                    args.push((id, type_.value.underlying()));
-                }
-                let body = self.resolve_body(body)?;
-                self.pop_scope();
 
-                let name = if *mangled {
+                    let var = scope::Variable {
+                        id,
+                        type_: type_.value,
+                        true_type: type_.value,
+                        mutable: arg.mutable,
+                        span_name: arg.name.span,
+                        span_type: arg.type_.span,
+                    };
+
+                    args_vars.push((arg.name.value.clone(), var));
+                }
+
+                let ir_name = if *mangled {
                     ir::FunctionName::Mangled(ir::Identifier::new())
                 } else {
                     ir::FunctionName::Named(name.0.clone())
                 };
 
-                Ok(ir::Declaration::Function {
-                    name,
-                    return_type: return_type.value.underlying(),
-                    arguments: args.into_boxed_slice(),
-                    body,
-                    vars: std::mem::take(&mut self.function_info.vars)
-                        .into_iter()
-                        .map(|(id, type_)| (id, type_.underlying()))
-                        .collect(),
-                })
+                let func = scope::FunctionInfo {
+                    name: ir_name,
+                    arguments: args_vars.into_boxed_slice(),
+                    return_type,
+                };
+
+                self.scope
+                    .insert(name.clone(), scope::ScopeItem::Function(func.clone()));
+                Ok((func, body))
             }
         }
+    }
+
+    /// Resolve a function body
+    fn resolve_function_body(
+        &mut self,
+        func: scope::FunctionInfo,
+        body: &ast::Body,
+    ) -> Result<ir::Declaration> {
+        self.function_info.return_type = func.return_type;
+
+        self.new_scope();
+        for (name, arg) in func.arguments.iter() {
+            self.scope
+                .insert(name.clone(), scope::ScopeItem::Variable(*arg));
+        }
+        let body = self.resolve_body(body)?;
+        self.pop_scope();
+
+        Ok(ir::Declaration::Function {
+            name: func.name,
+            arguments: func
+                .arguments
+                .iter()
+                .map(|(_, v)| (v.id, v.type_.underlying()))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            return_type: func.return_type.value.underlying(),
+            body,
+            vars: mem::take(&mut self.function_info.vars)
+                .into_iter()
+                .map(|(id, ty)| (id, ty.underlying()))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        })
     }
 
     /// Resolve a body, creating a new scope.

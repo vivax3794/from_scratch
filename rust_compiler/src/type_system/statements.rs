@@ -66,13 +66,16 @@ impl super::TypeResolver {
             let var = *self
                 .scope
                 .get(key)
-                .expect("Vars from narrows should always be present in the scope");
+                .expect("Vars from narrows should always be present in the scope")
+                .variable(span::Span::new(0, 0))
+                .expect("Should be a variable");
+
             self.scope.insert(
                 key.clone(),
-                scope::Variable {
+                scope::ScopeItem::Variable(scope::Variable {
                     type_: types::Type::Range(value.0),
                     ..var
-                },
+                }),
             );
         }
     }
@@ -131,9 +134,14 @@ impl super::TypeResolver {
             });
         };
 
-        let mut var_data = *self.scope.get(name).ok_or(Error::VariableNotFound {
-            span: target.span.into(),
-        })?;
+        let mut var_data = *self
+            .scope
+            .get(name)
+            .ok_or(Error::VariableNotFound {
+                span: target.span.into(),
+            })?
+            .variable(target.span)?;
+
         if !var_data.mutable {
             return Err(Error::CantMutateImmutable {
                 span: target.span.into(),
@@ -144,7 +152,8 @@ impl super::TypeResolver {
         // If the type is narrowed down we want to reset it to the original type
         if var_data.true_type != var_data.type_ {
             var_data.type_ = var_data.true_type;
-            self.scope.insert(name.clone(), var_data);
+            self.scope
+                .insert(name.clone(), scope::ScopeItem::Variable(var_data));
         }
 
         let expr = self.resolve_expression(expr)?.0;
@@ -161,7 +170,7 @@ impl super::TypeResolver {
                     reason: Some(var_data.span_type.into()),
                 });
             }
-            let expr = types::implicit_convert_to_type(expr, &var_data.type_)?;
+            let expr = types::implicit_convert_to_type(expr, &var_data.type_, var_data.span_type)?;
             Ok(ir::Statement::Assign {
                 name: var_data.id,
                 value: expr.generic().1.value,
@@ -231,7 +240,8 @@ impl super::TypeResolver {
         let id = ir::Identifier::new();
         let type_ = self.resolve_type(type_)?;
         let value = self.resolve_expression(value)?.0;
-        let (value_type, value) = types::implicit_convert_to_type(value, &type_.value)?.generic();
+        let (value_type, value) =
+            types::implicit_convert_to_type(value, &type_.value, type_.span)?.generic();
 
         if !type_.value.is_sub(&value_type) {
             return Err(Error::TypeMismatch {
@@ -245,14 +255,14 @@ impl super::TypeResolver {
         self.function_info.vars.push((id, type_.value));
         self.scope.insert(
             name.value.clone(),
-            scope::Variable {
+            scope::ScopeItem::Variable(scope::Variable {
                 id,
                 type_: type_.value,
                 true_type: type_.value,
                 mutable,
                 span_name: name.span,
                 span_type: type_.span,
-            },
+            }),
         );
 
         Ok(ir::Statement::Assign {
@@ -265,20 +275,8 @@ impl super::TypeResolver {
     fn resolve_return(&mut self, expr: &span::Spanned<ast::Expression>) -> Result<ir::Statement> {
         let return_type = self.function_info.return_type;
         let expr = self.resolve_expression(expr)?.0;
-        let (expr_type, expr) =
-            types::implicit_convert_to_type(expr, &return_type.value)?.generic();
-        if return_type.value.is_sub(&expr_type) {
-            Ok(ir::Statement::Return(expr.value))
-        } else {
-            Err(Error::TypeMismatch {
-                expected: return_type.value.type_str(),
-                actual: expr_type.type_str(),
-                span: expr.span.into(),
-                // This should always be Some
-                // But it is nicer for the linter to do it with map instead of unwrap
-                // and also more secure in case there is a bug somewhere else
-                reason: Some(return_type.span.into()),
-            })
-        }
+        let (_, expr) =
+            types::implicit_convert_to_type(expr, &return_type.value, return_type.span)?.generic();
+        Ok(ir::Statement::Return(expr.value))
     }
 }

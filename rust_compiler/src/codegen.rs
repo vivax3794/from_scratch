@@ -137,8 +137,33 @@ impl<'ctx> CodeGen<'ctx> {
     pub fn generate_file(&mut self, file: &ir::File) {
         self.generate_llvm_intrinsics();
         self.generate_libc_externs();
+
+        for declaration in file.0.iter() {
+            self.generate_declaration_signature(declaration);
+        }
         for declaration in file.0.iter() {
             self.generate_declaration(declaration);
+        }
+    }
+
+    /// Generate declration signature
+    fn generate_declaration_signature(&mut self, decl: &ir::Declaration) {
+        match decl {
+            ir::Declaration::Function {
+                name,
+                return_type,
+                arguments,
+                ..
+            } => {
+                let return_type = self.llvm_type(*return_type);
+                let mut argument_types = vec![];
+                for (_, type_) in arguments.iter() {
+                    argument_types.push(self.llvm_type(*type_).into());
+                }
+
+                let signature = return_type.fn_type(&argument_types, false);
+                self.module.add_function(&name.str(), signature, None);
+            }
         }
     }
 
@@ -147,30 +172,26 @@ impl<'ctx> CodeGen<'ctx> {
         match decl {
             ir::Declaration::Function {
                 name,
-                return_type,
                 arguments,
                 body,
                 vars,
+                ..
             } => {
                 self.function_vars.clear();
-
-                let return_type = self.llvm_type(*return_type);
-                let mut argument_types = vec![];
-                for (_, type_) in arguments.iter() {
-                    argument_types.push(self.llvm_type(*type_).into());
-                }
-
-                let signature = return_type.fn_type(&argument_types, false);
-                let function = self.module.add_function(&name.str(), signature, None);
-                function.get_params().iter().zip(arguments.iter()).for_each(
-                    |(param, (id, type_))| {
-                        self.function_vars
-                            .insert(*id, (param.into_pointer_value(), *type_));
-                    },
-                );
-
+                let function = self.module.get_function(&name.str()).unwrap();
                 let entry_block = self.context.append_basic_block(function, "entry");
                 self.builder.position_at_end(entry_block);
+
+                function
+                    .get_params()
+                    .into_iter()
+                    .zip(arguments.iter())
+                    .for_each(|(param, (id, type_))| {
+                        let ptr = self.builder.build_alloca(self.llvm_type(*type_), "Arg");
+                        self.builder.build_store(ptr, param);
+
+                        self.function_vars.insert(*id, (ptr, *type_));
+                    });
 
                 for (id, type_) in vars.iter() {
                     let ptr = self.builder.build_alloca(self.llvm_type(*type_), "Var");
@@ -183,39 +204,50 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
     /// Generate the LLVM code for a body
-    fn generate_body(&mut self, body: &ir::Body) {
+    fn generate_body(&mut self, body: &ir::Body) -> bool {
+        let mut terminated = false;
         for stmt in body.0.iter() {
-            self.generate_statement(stmt);
+            let this_terminated = self.generate_statement(stmt);
+            if this_terminated {
+                terminated = true;
+            }
         }
+        terminated
     }
 
     /// Generate the LLVM code for a statement
-    fn generate_statement(&mut self, stmt: &ir::Statement) {
+    fn generate_statement(&mut self, stmt: &ir::Statement) -> bool {
         match stmt {
-            ir::Statement::Nop => {}
+            ir::Statement::Nop => false,
             ir::Statement::Expression(expr) => {
                 self.generate_expression(expr);
+                false
             }
             ir::Statement::Return(expr) => {
                 let value = self.generate_expression(expr);
                 self.builder.build_return(Some(&value));
+                true
             }
             ir::Statement::Assert(expr) => {
                 self.generate_assert(expr);
+                false
             }
             ir::Statement::Assign { name, value } => {
                 let (ptr, _) = *self.function_vars.get(name).unwrap();
                 let expr = self.generate_expression(value);
                 self.builder.build_store(ptr, expr);
+                false
             }
             ir::Statement::If {
                 conditions,
                 else_block,
             } => {
                 self.generate_if(conditions, else_block);
+                false
             }
             ir::Statement::WhileLoop { condition, body } => {
                 self.generate_while_loop(condition, body);
+                false
             }
         }
     }
@@ -266,8 +298,10 @@ impl<'ctx> CodeGen<'ctx> {
                 .build_conditional_branch(condition, true_block, false_block);
 
             self.builder.position_at_end(true_block);
-            self.generate_body(body);
-            self.builder.build_unconditional_branch(continue_block);
+            let terminated = self.generate_body(body);
+            if !terminated {
+                self.builder.build_unconditional_branch(continue_block);
+            }
 
             self.builder.position_at_end(false_block);
 
@@ -364,6 +398,49 @@ impl<'ctx> CodeGen<'ctx> {
                     .build_load(self.llvm_type(type_), ptr, "Var")
                     .into_int_value()
             }
+            ir::IntExpression::Call(call) => {
+                let value = self.generate_call(call);
+                value.into_int_value()
+            }
+            ir::IntExpression::Cast {
+                target_min,
+                target_max,
+                signed,
+                width,
+                value,
+            } => {
+                let expr = self.generate_int_expression(value);
+
+                let signed = if *signed { "s" } else { "u" };
+                let min = format!("llvm.{signed}min.i{width}");
+                let max = format!("llvm.{signed}max.i{width}");
+
+                let min = self.module.get_function(&min).unwrap();
+                let max = self.module.get_function(&max).unwrap();
+
+                let result = self.builder.build_call(
+                    min,
+                    &[
+                        expr.into(),
+                        self.int_type(*width).const_int(*target_max, false).into(),
+                    ],
+                    "Result",
+                );
+                let result = self.builder.build_call(
+                    max,
+                    &[
+                        result.try_as_basic_value().unwrap_left().into(),
+                        self.int_type(*width).const_int(*target_min, false).into(),
+                    ],
+                    "Result",
+                );
+
+                result
+                    .try_as_basic_value()
+                    .unwrap_left()
+                    .as_basic_value_enum()
+                    .into_int_value()
+            }
         }
     }
 
@@ -380,13 +457,19 @@ impl<'ctx> CodeGen<'ctx> {
         let left = self.generate_int_expression(left);
         let right = self.generate_int_expression(right);
 
-        if let ir::IntBinaryOp::Remainder = op {
-            return if signed {
-                self.builder.build_int_signed_rem(left, right, "Signed Rem")
-            } else {
-                self.builder
-                    .build_int_unsigned_rem(left, right, "Signed Rem")
-            };
+        match op {
+            ir::IntBinaryOp::Remainder => {
+                return if signed {
+                    self.builder.build_int_signed_rem(left, right, "Signed Rem")
+                } else {
+                    self.builder
+                        .build_int_unsigned_rem(left, right, "Signed Rem")
+                };
+            }
+            ir::IntBinaryOp::And => {
+                return self.builder.build_and(left, right, "And");
+            }
+            _ => (),
         }
 
         let (name, is_fixed) = match op {
@@ -394,7 +477,7 @@ impl<'ctx> CodeGen<'ctx> {
             ir::IntBinaryOp::Sub => ("sub.sat", false),
             ir::IntBinaryOp::Mul => ("mul.fix.sat", true),
             ir::IntBinaryOp::FloorDivision => ("div.fix.sat", true),
-            ir::IntBinaryOp::Remainder => unreachable!(),
+            ir::IntBinaryOp::And | ir::IntBinaryOp::Remainder => unreachable!(),
         };
         let signed = if signed { "s" } else { "u" };
         let name = format!("llvm.{signed}{name}.i{width}");
@@ -471,6 +554,32 @@ impl<'ctx> CodeGen<'ctx> {
                 self.builder
                     .build_load(self.llvm_type(type_), ptr, "Var")
                     .into_int_value()
+            }
+            ir::BoolExpression::Call(call) => {
+                let value = self.generate_call(call);
+                value.into_int_value()
+            }
+        }
+    }
+
+    /// Generate the LLVM code for a call
+    fn generate_call(&mut self, call: &ir::Call) -> inkwell::values::BasicValueEnum<'ctx> {
+        match call {
+            ir::Call::FreeStanding {
+                function,
+                arguments,
+            } => {
+                let function = self.module.get_function(&function.str()).unwrap();
+                let mut llvm_arguments = vec![];
+                for argument in arguments.iter() {
+                    llvm_arguments.push(self.generate_expression(argument).into());
+                }
+
+                self.builder
+                    .build_call(function, &llvm_arguments, "Call")
+                    .try_as_basic_value()
+                    .unwrap_left()
+                    .as_basic_value_enum()
             }
         }
     }

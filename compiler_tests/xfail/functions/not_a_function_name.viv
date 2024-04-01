@@ -1,0 +1,7 @@
+
+expose main() u8 {
+    let x: u8 = 0;
+    x();
+
+    return 0;
+}

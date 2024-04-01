@@ -3,8 +3,7 @@
 use std::collections::HashMap;
 
 use super::types::Type;
-use crate::span::Span;
-use crate::{ast, ir};
+use crate::{ast, ir, span, Error, Result};
 
 /// A variable in the scope.
 #[derive(Clone, Debug, Copy)]
@@ -21,16 +20,57 @@ pub struct Variable {
     /// If the variable is mutable.
     pub mutable: bool,
     /// The span of the variable name in the declaration.
-    pub span_name: Span,
+    pub span_name: span::Span,
     /// The span of the variable type in the declaration.
-    pub span_type: Span,
+    pub span_type: span::Span,
+}
+
+/// Function info
+#[derive(Clone, Debug)]
+pub struct FunctionInfo {
+    /// the name
+    pub name: ir::FunctionName,
+    /// The return type of the function.
+    pub return_type: span::Spanned<Type>,
+    /// The arguments to the function.
+    pub arguments: Box<[(ast::Ident, Variable)]>,
+}
+
+/// A scope item
+pub enum ScopeItem {
+    /// A variable.
+    Variable(Variable),
+    /// A function.
+    Function(FunctionInfo),
+}
+
+impl ScopeItem {
+    pub fn variable(&self, span: span::Span) -> Result<&Variable> {
+        match self {
+            ScopeItem::Variable(var) => Ok(var),
+            _ => Err(Error::InvalidScopeItem {
+                span: span.into(),
+                expected: "variable".to_string(),
+            }),
+        }
+    }
+
+    pub fn function(&self, span: span::Span) -> Result<&FunctionInfo> {
+        match self {
+            ScopeItem::Function(func) => Ok(func),
+            _ => Err(Error::InvalidScopeItem {
+                span: span.into(),
+                expected: "function".to_string(),
+            }),
+        }
+    }
 }
 
 /// A scope of variables.
 #[derive(Default)]
 pub struct Scope {
     /// The variables in the scope.
-    vars: HashMap<ast::Ident, Variable>,
+    vars: HashMap<ast::Ident, ScopeItem>,
     /// Parent scope.
     parent: Option<Box<Scope>>,
 }
@@ -48,14 +88,14 @@ impl Scope {
         *self.parent.unwrap_or_default()
     }
     /// Get a variable from the scope.
-    pub fn get(&self, ident: &ast::Ident) -> Option<&Variable> {
+    pub fn get(&self, ident: &ast::Ident) -> Option<&ScopeItem> {
         self.vars.get(ident).or_else(|| {
             let parent = self.parent.as_ref()?;
             parent.get(ident)
         })
     }
     /// Insert a variable into the scope.
-    pub fn insert(&mut self, ident: ast::Ident, var: Variable) {
+    pub fn insert(&mut self, ident: ast::Ident, var: ScopeItem) {
         self.vars.insert(ident, var);
     }
 }

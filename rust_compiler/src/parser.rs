@@ -17,6 +17,10 @@ enum Operator {
     Binary(HashMap<Token, ast::BinaryOp>),
     /// A comparison operator
     Comparison(HashMap<Token, ast::ComparissonOp>),
+    /// Suffix operators and call syntax
+    Suffix,
+    /// Type cast   
+    Cast,
 }
 
 lazy_static! {
@@ -29,6 +33,10 @@ lazy_static! {
             Token::LtEq => ast::ComparissonOp::Le,
             Token::Gt => ast::ComparissonOp::Gt,
             Token::GtEq => ast::ComparissonOp::Ge,
+        }),
+        Operator::Cast,
+        Operator::Binary(hashmap! {
+            Token::And => ast::BinaryOp::And,
         }),
         Operator::Binary(hashmap! {
             Token::Plus => ast::BinaryOp::Add,
@@ -45,7 +53,8 @@ lazy_static! {
         Operator::Prefix(hashmap! {
             Token::Minus => ast::PrefixOp::Neg,
             Token::Bang => ast::PrefixOp::Not
-        })
+        }),
+        Operator::Suffix,
     ];
 }
 
@@ -431,7 +440,55 @@ impl Parser {
                     Ok(span.with_value(ast::Expression::Comparison(Box::new(left), chains)))
                 }
             }
+            Operator::Suffix => {
+                let mut expr = self.parse_operator(level + 1)?;
+                while self.peek() == &Token::OpenBracket {
+                    expr = self.parse_call(expr)?;
+                }
+
+                Ok(expr)
+            }
+            Operator::Cast => {
+                let expr = self.parse_operator(level + 1)?;
+                if self.peek() == &Token::Arrow {
+                    self.next();
+                    let type_ = self.parse_type()?;
+                    let span = expr.span.combine(type_.span);
+                    Ok(span.with_value(ast::Expression::Cast {
+                        type_,
+                        expr: Box::new(expr),
+                    }))
+                } else {
+                    Ok(expr)
+                }
+            }
         }
+    }
+
+    /// Parses a function call
+    fn parse_call(
+        &mut self,
+        function: Spanned<ast::Expression>,
+    ) -> Result<Spanned<ast::Expression>> {
+        self.expect(Token::OpenBracket)?;
+        let mut arguments = Vec::new();
+        while self.peek() != &Token::CloseBracket {
+            arguments.push(self.parse_expr()?);
+            if self.peek() == &Token::Comma {
+                self.next();
+            } else {
+                break;
+            }
+        }
+        let closing_span = self.expect(Token::CloseBracket)?;
+
+        Ok(function
+            .span
+            .combine(closing_span)
+            .with_value(ast::Expression::Call {
+                function: Box::new(function),
+                arguments: arguments.into_boxed_slice(),
+            }))
     }
 
     /// Parses a parenthesized expression or a literal

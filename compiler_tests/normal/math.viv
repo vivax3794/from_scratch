@@ -35,5 +35,17 @@ expose main() u8 {
     assert 10 % -3 == 1;
     assert -10 % -3 == -1;
 
+    assert 5 -> 0..10 == 5;
+    assert 15 -> 0..10 == 10;
+    assert_type 20 -> 0..10 = 0..10;
+
+    assert 4 & 3 == 0;
+    assert 5 & 3 == 1;
+
+    let x: u8 = 0;
+    let y: u8 = 0;
+    assert_type x & y = u8;
+    assert_type x & 4 = 0..4;
+
     return 300 - 300;
 }

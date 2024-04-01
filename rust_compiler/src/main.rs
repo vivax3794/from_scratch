@@ -188,11 +188,12 @@ fn do_test(directory: PathBuf) -> Result<(), miette::Error> {
             };
 
             println!(
-                "{} {}",
+                "{} {} - {}",
                 if status.success() { "✅" } else { "❌" },
                 path.file_name()
                     .map(|name| name.to_string_lossy())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                status
             );
 
             if !status.success() {

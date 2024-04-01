@@ -45,7 +45,7 @@ pub struct Argument {
 }
 
 /// A type
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Type {
     /// A name of a type, i.e struct, an alias, etc
     Named(Ident),
@@ -130,6 +130,20 @@ pub enum Expression {
     Binary(Box<Spanned<Expression>>, BinaryOp, Box<Spanned<Expression>>),
     /// A variable
     Identifier(Ident),
+    /// A function call
+    Call {
+        /// The function to call
+        function: Box<Spanned<Expression>>,
+        /// The arguments to the function
+        arguments: Box<[Spanned<Expression>]>,
+    },
+    /// Type cast
+    Cast {
+        /// The type to cast to
+        type_: Spanned<Type>,
+        /// The expression to cast
+        expr: Box<Spanned<Expression>>,
+    },
 }
 
 /// A binary operation
@@ -147,6 +161,8 @@ pub enum BinaryOp {
     Mod,
     /// Exponentiation
     Pow,
+    /// And
+    And,
 }
 
 /// A comparison operation
