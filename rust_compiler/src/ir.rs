@@ -2,11 +2,9 @@
 //! This in contrast to the ast represents the code in a way that is easier to generate code from.
 
 /// The root of the IR
-#[derive(Debug)]
 pub struct File(pub Box<[Declaration]>);
 
 /// A top level statement
-#[derive(Debug)]
 pub enum Declaration {
     /// A function declration
     Function {
@@ -24,7 +22,7 @@ pub enum Declaration {
 }
 
 /// A function name, can be mangled or raw
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum FunctionName {
     /// A mangled name, which is a random unique identifier
     Mangled(Identifier),
@@ -33,7 +31,7 @@ pub enum FunctionName {
 }
 
 /// Low level type
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum Type {
     /// A integer type of a specific width
     Int(u8),
@@ -42,11 +40,9 @@ pub enum Type {
 }
 
 /// A block of statements
-#[derive(Debug)]
 pub struct Body(pub Box<[Statement]>);
 
 /// A statement
-#[derive(Debug)]
 pub enum Statement {
     /// Used as a dummy value
     Nop,
@@ -82,7 +78,7 @@ pub enum Statement {
 /// An expression
 /// We have enums of different types of expressions to make it easier to generate code from
 /// because for example in a assert statement we can only have a boolean expression
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Expression {
     /// A integer expression
     Int(IntExpression),
@@ -91,7 +87,7 @@ pub enum Expression {
 }
 
 /// A integer expression
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum IntExpression {
     /// A integer literal
     Literal {
@@ -154,7 +150,7 @@ pub enum IntExpression {
 }
 
 /// A integer binary operation
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum IntBinaryOp {
     /// A addition
     Add,
@@ -173,7 +169,7 @@ pub enum IntBinaryOp {
 }
 
 /// A boolean expression
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum BoolExpression {
     /// A boolean literal
     Literal(bool),
@@ -188,7 +184,7 @@ pub enum BoolExpression {
 }
 
 /// A function call
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Call {
     /// A free standing function call
     FreeStanding {
@@ -200,7 +196,7 @@ pub enum Call {
 }
 
 /// A identifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Identifier(pub uuid::Uuid);
 
 impl Identifier {
@@ -208,12 +204,6 @@ impl Identifier {
     pub fn new() -> Self {
         let id = uuid::Uuid::new_v4();
         Self(id)
-    }
-}
-
-impl Default for Identifier {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

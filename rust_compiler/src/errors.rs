@@ -2,7 +2,7 @@
 use miette::Diagnostic;
 use thiserror::Error;
 
-use crate::{ast, lexer};
+use crate::lexer;
 
 /// Test fail reasons
 #[derive(Debug, Error, Diagnostic)]
@@ -149,24 +149,11 @@ pub enum CompileError {
     /// Invalid binary operation for this type
     #[error("Invalid binary operation")]
     InvalidBinaryOperation {
-        /// The operation that is invalid
-        op: ast::BinaryOp,
         /// The type of the operation
         type_: String,
         /// The span of the operation
         #[label("Invalid operation for type {type_}")]
         op_span: miette::SourceSpan,
-    },
-    /// Invalid right hand side for pow
-    #[error("Right hand side of pow cant be negative, which {min}..{max} might be")]
-    InvalidPowRhs {
-        /// The min of the range
-        min: i128,
-        /// The max of the range
-        max: i128,
-        /// The span of the right hand side
-        #[label]
-        span: miette::SourceSpan,
     },
     /// Invalid scope item type
     #[error("Invalid scope item type, expected {expected}")]

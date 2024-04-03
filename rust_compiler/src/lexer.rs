@@ -76,8 +76,11 @@ impl Lexer {
 
     /// Get the next character
     fn next(&mut self) -> Option<char> {
-        self.pos += 1;
-        self.code.pop_front()
+        let c = self.code.pop_front();
+        if let Some(c) = c {
+            self.pos += c.len_utf8();
+        }
+        c
     }
 
     /// Create a spanned token
@@ -233,6 +236,26 @@ impl Lexer {
                 let len = s.len();
                 self.token(Token::Ident(s.into_boxed_str()), len)
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    #[test]
+    fn short_input() {
+        let input = "º";
+        let _ = Lexer::new(input).lex();
+    }
+
+    proptest! {
+        #[test]
+        fn fuzzy(input in ".*") {
+            let _ = Lexer::new(&input).lex();
         }
     }
 }

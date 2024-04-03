@@ -233,7 +233,6 @@ impl super::TypeResolver {
                         ast::BinaryOp::Mod => ir::IntBinaryOp::Remainder,
                         _ => {
                             return Err(CompileError::InvalidBinaryOperation {
-                                op: op.value,
                                 type_: var_data.type_.type_str(),
                                 op_span: op.span.into(),
                             })

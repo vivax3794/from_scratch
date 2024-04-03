@@ -12,7 +12,6 @@
     missing_docs,
     clippy::missing_docs_in_private_items,
     missing_copy_implementations,
-    missing_debug_implementations,
     clippy::missing_const_for_fn,
     clippy::mixed_read_write_in_expression,
     clippy::partial_pub_fields,
@@ -37,7 +36,7 @@
     // clippy::panic_in_result_fn,
     clippy::tests_outside_test_module
 )]
-#![allow(unknown_lints)] // for dylint
+#![allow(unknown_lints, clippy::new_without_default)] // for dylint
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
@@ -90,6 +89,7 @@ fn build(content: &str, output_file: &Path) -> Result<(), CompileError> {
             "-no-pie",
             "-o",
             output_file.to_str().ok_or(CompileError::NonUtf8Path)?,
+            "-fuse-ld=mold",
         ])
         .status()?
         .exit_ok()?;
@@ -172,6 +172,7 @@ fn do_xfail_tests(
     xfail_dir: PathBuf,
     failed: &mut Vec<TestError>,
 ) -> Result<(), miette::ErrReport> {
+    let mut passed = 0;
     for entry in std::fs::read_dir(xfail_dir).map_err(CompileError::from)? {
         let entry = entry.map_err(CompileError::from)?;
         let path = entry.path();
@@ -189,38 +190,30 @@ fn do_xfail_tests(
                     let content =
                         std::fs::read_to_string(&file_path).map_err(CompileError::from)?;
 
-                    match build_wrapped(content, &file_path, output.path()) {
-                        Ok(()) => {
-                            println!(
-                                "❌ {}/{}",
-                                file_path
-                                    .parent()
-                                    .unwrap_or_else(|| Path::new(""))
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy(),
-                                file_path.file_name().unwrap_or_default().to_string_lossy()
-                            );
-                            failed.push(TestError::Xfail);
-                            continue;
-                        }
-                        Err(err) => {
-                            println!(
-                                "✅ {}/{}: {err}",
-                                file_path
-                                    .parent()
-                                    .unwrap_or_else(|| Path::new(""))
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy(),
-                                file_path.file_name().unwrap_or_default().to_string_lossy()
-                            );
-                        }
+                    if let Ok(()) = build_wrapped(content, &file_path, output.path()) {
+                        println!(
+                            "❌ {}/{}",
+                            file_path
+                                .parent()
+                                .unwrap_or_else(|| Path::new(""))
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy(),
+                            file_path.file_name().unwrap_or_default().to_string_lossy()
+                        );
+                        print!("✅ {passed}\r");
+                        flush();
+                        failed.push(TestError::Xfail);
+                    } else {
+                        passed += 1;
+                        print!("✅ {passed}\r");
+                        flush();
                     }
                 }
             }
         }
     }
+    println!();
     Ok(())
 }
 
@@ -229,6 +222,7 @@ fn do_normal_tests(
     normal_dir: PathBuf,
     failed: &mut Vec<TestError>,
 ) -> Result<(), miette::ErrReport> {
+    let mut passed = 0;
     for entry in std::fs::read_dir(normal_dir).map_err(CompileError::from)? {
         let entry = entry.map_err(CompileError::from)?;
         let path = entry.path();
@@ -269,19 +263,31 @@ fn do_normal_tests(
                 continue;
             };
 
-            println!(
-                "{} {} - {}",
-                if status.success() { "✅" } else { "❌" },
-                path.file_name()
-                    .map(|name| name.to_string_lossy())
-                    .unwrap_or_default(),
-                status
-            );
-
-            if !status.success() {
+            if status.success() {
+                passed += 1;
+                print!("✅ {passed}\r",);
+                flush();
+            } else {
                 failed.push(TestError::Binary);
+                println!(
+                    "❌ {} - {}",
+                    path.file_name()
+                        .map(|name| name.to_string_lossy())
+                        .unwrap_or_default(),
+                    status
+                );
+                print!("✅ {passed}\r",);
+                flush();
             }
         }
     }
+    println!();
     Ok(())
+}
+
+/// Flush stdout
+fn flush() {
+    use std::io::Write;
+    // flushing is not that important
+    let _ = std::io::stdout().flush();
 }

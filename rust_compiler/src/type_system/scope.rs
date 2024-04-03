@@ -6,7 +6,7 @@ use super::types::Type;
 use crate::{ast, ir, span, CompileError, Result};
 
 /// A variable in the scope.
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy)]
 pub struct Variable {
     /// The identifier of the variable.
     pub id: ir::Identifier,
@@ -26,7 +26,7 @@ pub struct Variable {
 }
 
 /// Function info
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct FunctionInfo {
     /// the name
     pub name: ir::FunctionName,
@@ -47,23 +47,25 @@ pub enum Item {
 impl Item {
     /// Get the variable from the item or return an error.
     pub fn variable(&self, span: span::Span) -> Result<&Variable> {
-        match self {
-            Item::Variable(var) => Ok(var),
-            _ => Err(CompileError::InvalidScopeItem {
+        if let Item::Variable(var) = self {
+            Ok(var)
+        } else {
+            Err(CompileError::InvalidScopeItem {
                 span: span.into(),
                 expected: "variable".to_owned(),
-            }),
+            })
         }
     }
 
     /// Get the function from the item or return an error.
     pub fn function(&self, span: span::Span) -> Result<&FunctionInfo> {
-        match self {
-            Item::Function(func) => Ok(func),
-            _ => Err(CompileError::InvalidScopeItem {
+        if let Item::Function(func) = self {
+            Ok(func)
+        } else {
+            Err(CompileError::InvalidScopeItem {
                 span: span.into(),
                 expected: "function".to_owned(),
-            }),
+            })
         }
     }
 }

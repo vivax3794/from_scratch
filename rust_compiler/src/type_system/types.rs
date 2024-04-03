@@ -94,14 +94,15 @@ pub enum Type {
 impl Type {
     /// Get the range of the type.
     pub fn int(&self, span: span::Span) -> Result<Range> {
-        match self {
-            Type::Range(range) => Ok(*range),
-            _ => Err(CompileError::TypeMismatch {
+        if let Type::Range(range) = self {
+            Ok(*range)
+        } else {
+            Err(CompileError::TypeMismatch {
                 expected: "int[..]".to_owned(),
                 actual: self.type_str(),
                 span: span.into(),
                 reason: None,
-            }),
+            })
         }
     }
 
@@ -155,7 +156,7 @@ impl Type {
 }
 
 /// An expression with a type.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum TypedExpression {
     /// An integer expression.
     Int(Range, span::Spanned<ir::IntExpression>),
@@ -169,14 +170,15 @@ impl TypedExpression {
         self,
         reason: impl Into<Option<span::Span>>,
     ) -> Result<(Range, span::Spanned<ir::IntExpression>)> {
-        match self {
-            Self::Int(range, expr) => Ok((range, expr)),
-            _ => Err(CompileError::TypeMismatch {
+        if let Self::Int(range, expr) = self {
+            Ok((range, expr))
+        } else {
+            Err(CompileError::TypeMismatch {
                 expected: "int[..]".to_owned(),
                 actual: self.type_str(),
                 span: self.span().into(),
                 reason: reason.into().map(Into::into),
-            }),
+            })
         }
     }
 
@@ -185,14 +187,15 @@ impl TypedExpression {
         self,
         reason: impl Into<Option<span::Span>>,
     ) -> Result<span::Spanned<ir::BoolExpression>> {
-        match self {
-            Self::Bool(expr) => Ok(expr),
-            _ => Err(CompileError::TypeMismatch {
+        if let Self::Bool(expr) = self {
+            Ok(expr)
+        } else {
+            Err(CompileError::TypeMismatch {
                 expected: "bool".to_owned(),
                 actual: self.type_str(),
                 span: self.span().into(),
                 reason: reason.into().map(Into::into),
-            }),
+            })
         }
     }
 
@@ -300,7 +303,8 @@ impl TypeNarrow {
     }
 }
 
-fn comparison_reverse(op: ast::ComparissonOp) -> ast::ComparissonOp {
+/// Returns the reverse of a comparison operation.
+const fn comparison_reverse(op: ast::ComparissonOp) -> ast::ComparissonOp {
     match op {
         ast::ComparissonOp::Eq => ast::ComparissonOp::Ne,
         ast::ComparissonOp::Ne => ast::ComparissonOp::Eq,
@@ -523,6 +527,7 @@ pub fn cast_to_common_super_type(
 impl super::TypeResolver {
     /// Resolve a type.
     #[allow(clippy::cast_lossless)]
+    #[allow(clippy::unused_self)] // TODO: remove when no longer needed
     pub fn resolve_type(
         &mut self, // We will be looking up types in the scope later
         type_: &span::Spanned<ast::Type>,

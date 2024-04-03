@@ -80,28 +80,25 @@ impl TypeResolver {
         arguments: &[span::Spanned<ast::Expression>],
         span: span::Span,
     ) -> Result<(types::TypedExpression, types::TypeNarrows)> {
-        match &function.value {
-            ast::Expression::Identifier(iden) => {
-                let func = self
-                    .scope
-                    .get(iden)
-                    .ok_or(CompileError::VariableNotFound {
-                        span: function.span.into(),
-                    })?
-                    .function(function.span)?
-                    .clone();
-                Ok((
-                    self.resolve_free_function(&func, arguments, span)?,
-                    types::TypeNarrows::default(),
-                ))
-            }
-            _ => {
-                let (expr, _) = self.resolve_expression(function)?;
-                Err(CompileError::InvalidFunctionCallTarget {
+        if let ast::Expression::Identifier(iden) = &function.value {
+            let func = self
+                .scope
+                .get(iden)
+                .ok_or(CompileError::VariableNotFound {
                     span: function.span.into(),
-                    type_: expr.type_str(),
-                })
-            }
+                })?
+                .function(function.span)?
+                .clone();
+            Ok((
+                self.resolve_free_function(&func, arguments, span)?,
+                types::TypeNarrows::default(),
+            ))
+        } else {
+            let (expr, _) = self.resolve_expression(function)?;
+            Err(CompileError::InvalidFunctionCallTarget {
+                span: function.span.into(),
+                type_: expr.type_str(),
+            })
         }
     }
 
@@ -152,143 +149,8 @@ impl TypeResolver {
         let (left_range, left) = self.resolve_expression(left)?.0.int(None)?;
         let (right_range, right) = self.resolve_expression(right)?.0.int(None)?;
 
-        let (mut new_range, op) = match op {
-            ast::BinaryOp::Add => (
-                types::Range::new(
-                    left_range.min + right_range.min,
-                    left_range.max + right_range.max,
-                    span,
-                )?,
-                ir::IntBinaryOp::Add,
-            ),
-            ast::BinaryOp::Sub => (
-                types::Range::new(
-                    left_range.min - right_range.max,
-                    left_range.max - right_range.min,
-                    span,
-                )?,
-                ir::IntBinaryOp::Sub,
-            ),
-            ast::BinaryOp::Mul => {
-                let bottom = left_range.min * right_range.min;
-                let top = left_range.max * right_range.max;
-                (
-                    types::Range::new(i128::min(top, bottom), i128::max(top, bottom), span)?,
-                    ir::IntBinaryOp::Mul,
-                )
-            }
-            ast::BinaryOp::FloorDivision => {
-                // div is really just a mul
-                if right_range.contains(0) {
-                    return Err(CompileError::DivisionByZero {
-                        span: right.span.into(),
-                        range: right_range.type_str(),
-                    });
-                }
-
-                let bottom = left_range.min / right_range.min;
-                let top = left_range.max / right_range.max;
-                (
-                    types::Range::new(i128::min(top, bottom), i128::max(top, bottom), span)?,
-                    ir::IntBinaryOp::FloorDivision,
-                )
-            }
-            ast::BinaryOp::Mod => {
-                // a % b = a - b * (a // b)
-                if right_range.contains(0) {
-                    return Err(CompileError::DivisionByZero {
-                        span: right.span.into(),
-                        range: right_range.type_str(),
-                    });
-                }
-
-                let right_min = right_range.min.abs();
-                let right_max = right_range.max.abs();
-
-                let top = left_range.min.signum() * i128::min(left_range.max.abs(), right_max - 1);
-
-                // Bottom is 0
-                // unless the left range does not go above the right range (and doesnt include zero)
-                let bottom = if left_range.max.abs() < right_min {
-                    left_range.min
-                } else {
-                    0
-                };
-
-                let (bottom, top) = if top < bottom {
-                    (top, bottom)
-                } else {
-                    (bottom, top)
-                };
-
-                (
-                    types::Range::new(bottom, top, span)?,
-                    ir::IntBinaryOp::Remainder,
-                )
-            }
-            ast::BinaryOp::Pow => {
-                return Err(CompileError::InvalidBinaryOperation {
-                    op: ast::BinaryOp::Pow,
-                    type_: "int".to_owned(),
-                    op_span: span.into(),
-                });
-            }
-            ast::BinaryOp::And => {
-                if left_range.signed() {
-                    return Err(CompileError::TypeMismatch {
-                        expected: "int[0..]".to_owned(),
-                        actual: left_range.type_str(),
-                        span: left.span.into(),
-                        reason: None,
-                    });
-                }
-                if right_range.signed() {
-                    return Err(CompileError::TypeMismatch {
-                        expected: "int[0..]".to_owned(),
-                        actual: right_range.type_str(),
-                        span: right.span.into(),
-                        reason: None,
-                    });
-                }
-
-                let new_range =
-                    types::Range::new(0, i128::min(left_range.max, right_range.max), span)?;
-
-                (new_range, ir::IntBinaryOp::And)
-            }
-            ast::BinaryOp::Or => {
-                if left_range.signed() {
-                    return Err(CompileError::TypeMismatch {
-                        expected: "int[0..]".to_owned(),
-                        actual: left_range.type_str(),
-                        span: left.span.into(),
-                        reason: None,
-                    });
-                }
-                if right_range.signed() {
-                    return Err(CompileError::TypeMismatch {
-                        expected: "int[0..]".to_owned(),
-                        actual: right_range.type_str(),
-                        span: right.span.into(),
-                        reason: None,
-                    });
-                }
-                // Find the min width that can hold both ranges
-                // And this is for the result of the or, so not aligned to 8 bits, we have to use
-                // custom logic.
-
-                let left_width = left_range.max.ilog2() + 1;
-                let right_width = right_range.max.ilog2() + 1;
-
-                let new_range = types::Range::new(
-                    i128::max(left_range.min, right_range.min),
-                    (2i128).pow(u32::max(left_width, right_width)) - 1,
-                    span,
-                )?;
-
-                (new_range, ir::IntBinaryOp::Or)
-            }
-        };
+        let (mut new_range, op) =
+            resolve_binary_operator_ranges(op, left_range, right_range, span, &right, &left)?;
 
         let (super_type, mut exprs) = types::cast_to_common_super_type(
             vec![(left_range, left.value), (right_range, right.value)],
@@ -428,6 +290,144 @@ impl TypeResolver {
             }
         }
     }
+}
+
+/// Returns the resulting range and binary operator for a binary operator.
+fn resolve_binary_operator_ranges(
+    op: ast::BinaryOp,
+    left_range: types::Range,
+    right_range: types::Range,
+    span: span::Span,
+    right: &span::Spanned<ir::IntExpression>,
+    left: &span::Spanned<ir::IntExpression>,
+) -> Result<(types::Range, ir::IntBinaryOp)> {
+    Ok(match op {
+        ast::BinaryOp::Add => (
+            types::Range::new(
+                left_range.min + right_range.min,
+                left_range.max + right_range.max,
+                span,
+            )?,
+            ir::IntBinaryOp::Add,
+        ),
+        ast::BinaryOp::Sub => (
+            types::Range::new(
+                left_range.min - right_range.max,
+                left_range.max - right_range.min,
+                span,
+            )?,
+            ir::IntBinaryOp::Sub,
+        ),
+        ast::BinaryOp::Mul => {
+            let bottom = left_range.min * right_range.min;
+            let top = left_range.max * right_range.max;
+            (
+                types::Range::new(i128::min(top, bottom), i128::max(top, bottom), span)?,
+                ir::IntBinaryOp::Mul,
+            )
+        }
+        ast::BinaryOp::FloorDivision => {
+            if right_range.contains(0) {
+                return Err(CompileError::DivisionByZero {
+                    span: right.span.into(),
+                    range: right_range.type_str(),
+                });
+            }
+
+            let bottom = left_range.min / right_range.min;
+            let top = left_range.max / right_range.max;
+            (
+                types::Range::new(i128::min(top, bottom), i128::max(top, bottom), span)?,
+                ir::IntBinaryOp::FloorDivision,
+            )
+        }
+        ast::BinaryOp::Mod => {
+            // a % b = a - b * (a // b)
+            if right_range.contains(0) {
+                return Err(CompileError::DivisionByZero {
+                    span: right.span.into(),
+                    range: right_range.type_str(),
+                });
+            }
+
+            let right_min = right_range.min.abs();
+            let right_max = right_range.max.abs();
+
+            let top = left_range.min.signum() * i128::min(left_range.max.abs(), right_max - 1);
+
+            // Bottom is 0
+            // unless the left range does not go above the right range (and doesnt include zero)
+            let bottom = if left_range.max.abs() < right_min {
+                left_range.min
+            } else {
+                0
+            };
+
+            let (bottom, top) = if top < bottom {
+                (top, bottom)
+            } else {
+                (bottom, top)
+            };
+
+            (
+                types::Range::new(bottom, top, span)?,
+                ir::IntBinaryOp::Remainder,
+            )
+        }
+        ast::BinaryOp::Pow => {
+            return Err(CompileError::InvalidBinaryOperation {
+                type_: "int".to_owned(),
+                op_span: span.into(),
+            });
+        }
+        ast::BinaryOp::And => {
+            ensure_no_negative(left_range, left, right_range, right)?;
+
+            let new_range = types::Range::new(0, i128::min(left_range.max, right_range.max), span)?;
+
+            (new_range, ir::IntBinaryOp::And)
+        }
+        ast::BinaryOp::Or => {
+            ensure_no_negative(left_range, left, right_range, right)?;
+
+            let left_width = left_range.max.ilog2() + 1;
+            let right_width = right_range.max.ilog2() + 1;
+
+            let new_range = types::Range::new(
+                i128::max(left_range.min, right_range.min),
+                (2i128).pow(u32::max(left_width, right_width)) - 1,
+                span,
+            )?;
+
+            (new_range, ir::IntBinaryOp::Or)
+        }
+    })
+}
+
+/// Ensure that the ranges are not negative.
+fn ensure_no_negative(
+    left_range: types::Range,
+    left: &span::Spanned<ir::IntExpression>,
+    right_range: types::Range,
+    right: &span::Spanned<ir::IntExpression>,
+) -> Result<()> {
+    if left_range.signed() {
+        return Err(CompileError::TypeMismatch {
+            expected: "int[0..]".to_owned(),
+            actual: left_range.type_str(),
+            span: left.span.into(),
+            reason: None,
+        });
+    }
+    if right_range.signed() {
+        return Err(CompileError::TypeMismatch {
+            expected: "int[0..]".to_owned(),
+            actual: right_range.type_str(),
+            span: right.span.into(),
+            reason: None,
+        });
+    }
+    Ok(())
 }
 
 /// Resolve a literal.

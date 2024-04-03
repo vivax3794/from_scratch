@@ -4,18 +4,15 @@
 use crate::span::{Span, Spanned};
 
 /// The root of the AST
-#[derive(Debug)]
 pub struct File(pub Box<[Declaration]>);
 
 /// A top level statement
-#[derive(Debug)]
 pub enum Declaration {
     /// A function declration
     Function(FunctionDeclration),
 }
 
 /// A function declration
-#[derive(Debug)]
 pub enum FunctionDeclration {
     /// A function that does not have its name mangled
     /// and can be called from other languages
@@ -34,7 +31,6 @@ pub enum FunctionDeclration {
 }
 
 /// A function argument
-#[derive(Debug)]
 pub struct Argument {
     /// Is it mutable
     pub mutable: bool,
@@ -45,7 +41,7 @@ pub struct Argument {
 }
 
 /// A type
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Type {
     /// A name of a type, i.e struct, an alias, etc
     Named(Ident),
@@ -54,15 +50,13 @@ pub enum Type {
 }
 
 /// An identifier
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Ident(pub Box<str>);
 
 /// A block of statements
-#[derive(Debug)]
 pub struct Body(pub Box<[Statement]>);
 
 /// A statement
-#[derive(Debug)]
 pub enum Statement {
     /// A expression
     Expr(Spanned<Expression>),
@@ -115,7 +109,7 @@ pub enum Statement {
 }
 
 /// An expression
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Expression {
     /// A literal
     Literal(Literal),
@@ -147,7 +141,7 @@ pub enum Expression {
 }
 
 /// A binary operation
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum BinaryOp {
     /// Addition
     Add,
@@ -168,7 +162,7 @@ pub enum BinaryOp {
 }
 
 /// A comparison operation
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum ComparissonOp {
     /// Equal
     Eq,
@@ -185,7 +179,7 @@ pub enum ComparissonOp {
 }
 
 /// A prefix operation
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum PrefixOp {
     /// Logical not
     Not,
@@ -194,7 +188,7 @@ pub enum PrefixOp {
 }
 
 /// A literal
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Literal {
     /// A integer literal
     Int(i128),
