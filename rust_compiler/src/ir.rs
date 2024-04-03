@@ -168,6 +168,8 @@ pub enum IntBinaryOp {
     Remainder,
     /// A and
     And,
+    /// A or
+    Or,
 }
 
 /// A boolean expression

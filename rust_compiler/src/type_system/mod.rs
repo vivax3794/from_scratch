@@ -8,7 +8,7 @@ mod statements;
 
 use std::mem;
 
-use crate::{ast, ir, span, Error, Result};
+use crate::{ast, ir, span, Result};
 
 /// Information about a function.
 struct FunctionInfo {
@@ -116,7 +116,7 @@ impl TypeResolver {
                 };
 
                 self.scope
-                    .insert(name.clone(), scope::ScopeItem::Function(func.clone()));
+                    .insert(name.clone(), scope::Item::Function(func.clone()));
                 Ok((func, body))
             }
         }
@@ -132,8 +132,7 @@ impl TypeResolver {
 
         self.new_scope();
         for (name, arg) in func.arguments.iter() {
-            self.scope
-                .insert(name.clone(), scope::ScopeItem::Variable(*arg));
+            self.scope.insert(name.clone(), scope::Item::Variable(*arg));
         }
         let body = self.resolve_body(body)?;
         self.pop_scope();

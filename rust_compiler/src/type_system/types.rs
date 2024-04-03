@@ -1,7 +1,7 @@
 //! Types for the type checker.
 use std::collections::HashMap;
 
-use crate::{ast, ir, span, Error, Result};
+use crate::{ast, ir, span, CompileError, Result};
 
 /// Integer type range.
 #[derive(Clone, Debug, Copy, Eq)]
@@ -24,7 +24,7 @@ impl Range {
     /// Create a new range.
     pub fn new(min: i128, max: i128, span: span::Span) -> Result<Self> {
         if min > max {
-            return Err(Error::InvalidRange {
+            return Err(CompileError::InvalidRange {
                 start: min,
                 end: max,
                 span: span.into(),
@@ -63,7 +63,7 @@ impl Range {
         } else if min >= i64::MIN as i128 && max <= i64::MAX as i128 {
             64
         } else {
-            return Err(Error::TooLargeRange {
+            return Err(CompileError::TooLargeRange {
                 start: min,
                 end: max,
                 span: span.into(),
@@ -96,7 +96,7 @@ impl Type {
     pub fn int(&self, span: span::Span) -> Result<Range> {
         match self {
             Type::Range(range) => Ok(*range),
-            _ => Err(Error::TypeMismatch {
+            _ => Err(CompileError::TypeMismatch {
                 expected: "int[..]".to_owned(),
                 actual: self.type_str(),
                 span: span.into(),
@@ -171,7 +171,7 @@ impl TypedExpression {
     ) -> Result<(Range, span::Spanned<ir::IntExpression>)> {
         match self {
             Self::Int(range, expr) => Ok((range, expr)),
-            _ => Err(Error::TypeMismatch {
+            _ => Err(CompileError::TypeMismatch {
                 expected: "int[..]".to_owned(),
                 actual: self.type_str(),
                 span: self.span().into(),
@@ -187,7 +187,7 @@ impl TypedExpression {
     ) -> Result<span::Spanned<ir::BoolExpression>> {
         match self {
             Self::Bool(expr) => Ok(expr),
-            _ => Err(Error::TypeMismatch {
+            _ => Err(CompileError::TypeMismatch {
                 expected: "bool".to_owned(),
                 actual: self.type_str(),
                 span: self.span().into(),
@@ -246,7 +246,12 @@ pub struct TypeNarrow(pub Range);
 
 /// A map of type narrows.
 #[derive(Default)]
-pub struct TypeNarrows(pub HashMap<ast::Ident, TypeNarrow>);
+pub struct TypeNarrows {
+    /// Positive narrows.
+    pub positive: HashMap<ast::Ident, TypeNarrow>,
+    /// Negative narrows. i.e else branch.
+    pub negative: HashMap<ast::Ident, TypeNarrow>,
+}
 
 /// A result of a narrow.
 enum NarrowResult {
@@ -286,12 +291,23 @@ impl TypeNarrow {
     }
 
     /// Combine two narrows.
-    fn and(self, _other: Self) -> Self {
+    fn and(self, other: Self) -> Self {
         Self(Range {
-            min: i128::max(self.0.min, self.0.min),
-            max: i128::min(self.0.max, self.0.max),
+            min: i128::max(self.0.min, other.0.min),
+            max: i128::min(self.0.max, other.0.max),
             width: self.0.width,
         })
+    }
+}
+
+fn comparison_reverse(op: ast::ComparissonOp) -> ast::ComparissonOp {
+    match op {
+        ast::ComparissonOp::Eq => ast::ComparissonOp::Ne,
+        ast::ComparissonOp::Ne => ast::ComparissonOp::Eq,
+        ast::ComparissonOp::Lt => ast::ComparissonOp::Ge,
+        ast::ComparissonOp::Le => ast::ComparissonOp::Gt,
+        ast::ComparissonOp::Gt => ast::ComparissonOp::Le,
+        ast::ComparissonOp::Ge => ast::ComparissonOp::Lt,
     }
 }
 
@@ -304,10 +320,10 @@ impl TypeNarrows {
         (right_expr, right_ast): (TypedExpression, ast::Expression),
     ) -> Self {
         let TypedExpression::Int(left_range, _) = left_expr else {
-            return Self(HashMap::new());
+            return Self::default();
         };
         let TypedExpression::Int(right_range, _) = right_expr else {
-            return Self(HashMap::new());
+            return Self::default();
         };
 
         let complement = match operation {
@@ -319,27 +335,48 @@ impl TypeNarrows {
             ast::ComparissonOp::Ge => ast::ComparissonOp::Le,
         };
 
-        let left_type = TypeNarrow(left_range).narrow_type(operation, right_range);
-        let right_type = TypeNarrow(right_range).narrow_type(complement, left_range);
+        let left_type_pos = TypeNarrow(left_range).narrow_type(operation, right_range);
+        let right_type_pos = TypeNarrow(right_range).narrow_type(complement, left_range);
+        let left_type_neg =
+            TypeNarrow(left_range).narrow_type(comparison_reverse(operation), right_range);
+        let right_type_neg =
+            TypeNarrow(right_range).narrow_type(comparison_reverse(complement), left_range);
 
-        let mut narrows = HashMap::new();
+        let mut positive = HashMap::new();
+        let mut negative = HashMap::new();
         if let ast::Expression::Identifier(ident) = left_ast {
-            if let NarrowResult::Narrowed(range) = left_type {
-                narrows.insert(ident, TypeNarrow(range));
+            if let NarrowResult::Narrowed(range) = left_type_pos {
+                positive.insert(ident.clone(), TypeNarrow(range));
+            }
+            if let NarrowResult::Narrowed(range) = left_type_neg {
+                negative.insert(ident, TypeNarrow(range));
             }
         }
         if let ast::Expression::Identifier(ident) = right_ast {
-            if let NarrowResult::Narrowed(range) = right_type {
-                narrows.insert(ident, TypeNarrow(range));
+            if let NarrowResult::Narrowed(range) = right_type_pos {
+                positive.insert(ident.clone(), TypeNarrow(range));
+            }
+            if let NarrowResult::Narrowed(range) = right_type_neg {
+                negative.insert(ident, TypeNarrow(range));
             }
         }
-        self.and(TypeNarrows(narrows))
+        self.and(TypeNarrows { positive, negative })
     }
 
     /// Combine two type narrows.
-    fn and(mut self, other: Self) -> Self {
-        for (key, value) in other.0 {
-            match self.0.try_insert(key, value) {
+    pub fn and(mut self, other: Self) -> Self {
+        for (key, value) in other.positive {
+            match self.positive.try_insert(key, value) {
+                Ok(_) => {}
+                Err(err) => {
+                    let mut entry = err.entry;
+                    let value = entry.get_mut();
+                    *value = value.and(err.value);
+                }
+            }
+        }
+        for (key, value) in other.negative {
+            match self.negative.try_insert(key, value) {
                 Ok(_) => {}
                 Err(err) => {
                     let mut entry = err.entry;
@@ -419,7 +456,7 @@ pub fn implicit_convert_to_type(
     match target_type {
         Type::Range(target_range) => {
             if !target_type.is_sub(&expr.type_()) {
-                return Err(Error::TypeMismatch {
+                return Err(CompileError::TypeMismatch {
                     expected: target_type.type_str(),
                     actual: expr.type_str(),
                     span: expr.span().into(),
@@ -502,7 +539,11 @@ impl super::TypeResolver {
                 "i32" => Type::Range(Range::new(i32::MIN as i128, i32::MAX as i128, type_.span)?),
                 "i64" => Type::Range(Range::new(i64::MIN as i128, i64::MAX as i128, type_.span)?),
                 "bool" => Type::Boolean,
-                name => panic!("Unknown name {name}"),
+                _ => {
+                    return Err(CompileError::VariableNotFound {
+                        span: type_.span.into(),
+                    });
+                }
             },
         };
         Ok(type_.span.with_value(result))

@@ -1,5 +1,9 @@
+//! Type resolution for statements.
+
+use std::collections::HashMap;
+
 use super::{scope, types};
-use crate::{ast, ir, span, Error, Result};
+use crate::{ast, ir, span, CompileError, Result};
 
 impl super::TypeResolver {
     /// Resolve a statement.
@@ -23,15 +27,15 @@ impl super::TypeResolver {
                 let span = expr.span();
                 let expr_type = expr.generic_type();
 
-                if type_.value != expr_type {
-                    Err(Error::TypeMismatch {
+                if type_.value == expr_type {
+                    Ok(ir::Statement::Nop)
+                } else {
+                    Err(CompileError::TypeMismatch {
                         expected: type_.value.type_str(),
                         actual: expr_type.type_str(),
                         span: span.into(),
                         reason: Some(type_.span.into()),
                     })
-                } else {
-                    Ok(ir::Statement::Nop)
                 }
             }
             ast::Statement::VaribleBinding {
@@ -59,9 +63,15 @@ impl super::TypeResolver {
     }
 
     /// Create a new scope with the type narrow
-    fn new_scope_from_narrow(&mut self, narrows: &types::TypeNarrows) {
+    #[allow(mismatched_scope)]
+    fn new_scope_from_narrow(&mut self, narrows: &types::TypeNarrows, pos: bool) {
         self.new_scope();
-        for (key, value) in narrows.0.iter() {
+        let narrows = if pos {
+            &narrows.positive
+        } else {
+            &narrows.negative
+        };
+        for (key, value) in narrows {
             #[allow(clippy::expect_used)]
             let var = *self
                 .scope
@@ -72,7 +82,7 @@ impl super::TypeResolver {
 
             self.scope.insert(
                 key.clone(),
-                scope::ScopeItem::Variable(scope::Variable {
+                scope::Item::Variable(scope::Variable {
                     type_: types::Type::Range(value.0),
                     ..var
                 }),
@@ -87,28 +97,41 @@ impl super::TypeResolver {
         body: &ast::Body,
         elif: &[(span::Spanned<ast::Expression>, ast::Body)],
         else_block: &Option<ast::Body>,
-    ) -> std::prelude::v1::Result<ir::Statement, Error> {
+    ) -> std::prelude::v1::Result<ir::Statement, CompileError> {
         let (condition, narrows) = self.resolve_expression(condition)?;
         let condition = condition.bool(None)?.value;
 
-        self.new_scope_from_narrow(&narrows);
+        self.new_scope_from_narrow(&narrows, true);
         let body = self.resolve_body(body)?;
         self.pop_scope();
+
+        let mut accumulated_narrows = narrows;
 
         let elif = elif
             .iter()
             .map(|(condition, body)| {
+                self.new_scope_from_narrow(&accumulated_narrows, false);
                 let (expr, narrows) = self.resolve_expression(condition)?;
-                self.new_scope_from_narrow(&narrows);
+                self.new_scope_from_narrow(&narrows, true);
+                accumulated_narrows = types::TypeNarrows {
+                    positive: HashMap::default(),
+                    negative: std::mem::take(&mut accumulated_narrows.negative),
+                }
+                .and(narrows);
+
                 let body = self.resolve_body(body)?;
+                self.pop_scope();
                 self.pop_scope();
                 Ok((expr.bool(None)?.value, body))
             })
             .collect::<Result<Vec<_>>>()?;
+
+        self.new_scope_from_narrow(&accumulated_narrows, false);
         let else_block = else_block
             .as_ref()
             .map(|body| self.resolve_body(body))
             .transpose()?;
+        self.pop_scope();
 
         Ok(ir::Statement::If {
             conditions: [(condition, body)]
@@ -126,9 +149,9 @@ impl super::TypeResolver {
         target: &span::Spanned<ast::Expression>,
         expr: &span::Spanned<ast::Expression>,
         op: Option<span::Spanned<ast::BinaryOp>>,
-    ) -> std::prelude::v1::Result<ir::Statement, Error> {
+    ) -> std::prelude::v1::Result<ir::Statement, CompileError> {
         let ast::Expression::Identifier(name) = &target.value else {
-            return Err(Error::InvalidAssignmentTarget {
+            return Err(CompileError::InvalidAssignmentTarget {
                 reason: "Not an identifier".to_owned(),
                 span: target.span.into(),
             });
@@ -137,13 +160,13 @@ impl super::TypeResolver {
         let mut var_data = *self
             .scope
             .get(name)
-            .ok_or(Error::VariableNotFound {
+            .ok_or(CompileError::VariableNotFound {
                 span: target.span.into(),
             })?
             .variable(target.span)?;
 
         if !var_data.mutable {
-            return Err(Error::CantMutateImmutable {
+            return Err(CompileError::CantMutateImmutable {
                 span: target.span.into(),
                 decl_span: var_data.span_name.into(),
             });
@@ -153,17 +176,17 @@ impl super::TypeResolver {
         if var_data.true_type != var_data.type_ {
             var_data.type_ = var_data.true_type;
             self.scope
-                .insert(name.clone(), scope::ScopeItem::Variable(var_data));
+                .insert(name.clone(), scope::Item::Variable(var_data));
         }
 
         let expr = self.resolve_expression(expr)?.0;
 
         if let Some(op) = op {
-            self.resolve_compound_assignment(expr, target, var_data, op)
+            Self::resolve_compound_assignment(expr, target, var_data, op)
         } else {
             if !var_data.type_.is_sub(&expr.generic_type()) {
                 let span = expr.span();
-                return Err(Error::TypeMismatch {
+                return Err(CompileError::TypeMismatch {
                     expected: var_data.type_.type_str(),
                     actual: expr.generic_type().type_str(),
                     span: span.into(),
@@ -180,7 +203,6 @@ impl super::TypeResolver {
 
     /// Resolve a compound assignment.
     fn resolve_compound_assignment(
-        &mut self,
         expr: types::TypedExpression,
         target: &span::Spanned<ast::Expression>,
         var_data: scope::Variable,
@@ -210,7 +232,7 @@ impl super::TypeResolver {
                         ast::BinaryOp::FloorDivision => ir::IntBinaryOp::FloorDivision,
                         ast::BinaryOp::Mod => ir::IntBinaryOp::Remainder,
                         _ => {
-                            return Err(Error::InvalidBinaryOperation {
+                            return Err(CompileError::InvalidBinaryOperation {
                                 op: op.value,
                                 type_: var_data.type_.type_str(),
                                 op_span: op.span.into(),
@@ -244,7 +266,7 @@ impl super::TypeResolver {
             types::implicit_convert_to_type(value, &type_.value, type_.span)?.generic();
 
         if !type_.value.is_sub(&value_type) {
-            return Err(Error::TypeMismatch {
+            return Err(CompileError::TypeMismatch {
                 expected: type_.value.type_str(),
                 actual: value_type.type_str(),
                 span: value.span.into(),
@@ -255,7 +277,7 @@ impl super::TypeResolver {
         self.function_info.vars.push((id, type_.value));
         self.scope.insert(
             name.value.clone(),
-            scope::ScopeItem::Variable(scope::Variable {
+            scope::Item::Variable(scope::Variable {
                 id,
                 type_: type_.value,
                 true_type: type_.value,

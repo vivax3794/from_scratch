@@ -1,6 +1,6 @@
 //! The lexer is responsible for converting a string of characters into a list of tokens.
-use crate::span::Spanned;
-use crate::Error;
+use crate::span::{Span, Spanned};
+use crate::{CompileError, Result};
 
 /// A token
 #[allow(clippy::missing_docs_in_private_items)]
@@ -50,6 +50,7 @@ pub enum Token {
     Comma,
     Arrow,
     And,
+    Or,
     Eof,
 }
 
@@ -85,7 +86,7 @@ impl Lexer {
     }
 
     /// Lex the code
-    pub fn lex(mut self) -> Result<Vec<Spanned<Token>>, Error> {
+    pub fn lex(mut self) -> Result<Vec<Spanned<Token>>, CompileError> {
         let mut tokens = Vec::new();
 
         self.eat_whitespace();
@@ -114,10 +115,11 @@ impl Lexer {
                 '>' => self.lex_double(Token::Gt, &[('=', Token::GtEq)]),
                 ',' => self.token(Token::Comma, 1),
                 '&' => self.token(Token::And, 1),
-                c if c.is_ascii_digit() => self.lex_number(c),
+                '|' => self.token(Token::Or, 1),
+                c if c.is_ascii_digit() => self.lex_number(c)?,
                 c if c.is_alphabetic() => self.lex_ident(c),
                 _ => {
-                    return Err(Error::UnknownCharacter {
+                    return Err(CompileError::UnknownCharacter {
                         character: c,
                         span: miette::SourceSpan::new((self.pos - 1).into(), 1),
                     })
@@ -175,7 +177,7 @@ impl Lexer {
     }
 
     /// Lex a number
-    fn lex_number(&mut self, first: char) -> Spanned<Token> {
+    fn lex_number(&mut self, first: char) -> Result<Spanned<Token>> {
         let mut digits = vec![first];
         loop {
             match self.peek() {
@@ -189,8 +191,14 @@ impl Lexer {
 
         let len = digits.len();
         // TODO: can overflow
-        let num = digits.into_iter().collect::<String>().parse().unwrap();
-        self.token(Token::Number(num), len)
+        let num = digits
+            .into_iter()
+            .collect::<String>()
+            .parse()
+            .map_err(|_| CompileError::IntOverflow {
+                span: Span::new(self.pos - len, self.pos).into(),
+            })?;
+        Ok(self.token(Token::Number(num), len))
     }
 
     /// Lex an identifier

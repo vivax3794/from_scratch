@@ -272,8 +272,10 @@ impl<'ctx> CodeGen<'ctx> {
             .build_conditional_branch(condition, body_block, continue_block);
 
         self.builder.position_at_end(body_block);
-        self.generate_body(body);
-        self.builder.build_unconditional_branch(condition_block);
+        let terminated = self.generate_body(body);
+        if !terminated {
+            self.builder.build_unconditional_branch(condition_block);
+        }
         self.builder.position_at_end(continue_block);
     }
 
@@ -469,6 +471,9 @@ impl<'ctx> CodeGen<'ctx> {
             ir::IntBinaryOp::And => {
                 return self.builder.build_and(left, right, "And");
             }
+            ir::IntBinaryOp::Or => {
+                return self.builder.build_or(left, right, "Or");
+            }
             _ => (),
         }
 
@@ -477,7 +482,9 @@ impl<'ctx> CodeGen<'ctx> {
             ir::IntBinaryOp::Sub => ("sub.sat", false),
             ir::IntBinaryOp::Mul => ("mul.fix.sat", true),
             ir::IntBinaryOp::FloorDivision => ("div.fix.sat", true),
-            ir::IntBinaryOp::And | ir::IntBinaryOp::Remainder => unreachable!(),
+            ir::IntBinaryOp::And | ir::IntBinaryOp::Remainder | ir::IntBinaryOp::Or => {
+                unreachable!()
+            }
         };
         let signed = if signed { "s" } else { "u" };
         let name = format!("llvm.{signed}{name}.i{width}");

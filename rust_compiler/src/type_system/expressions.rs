@@ -1,5 +1,7 @@
+//! Type resolving for expressions.
+
 use super::{scope, types, TypeResolver};
-use crate::{ast, ir, span, Error, Result};
+use crate::{ast, ir, span, CompileError, Result};
 
 impl TypeResolver {
     /// Resolve an expression.
@@ -12,7 +14,7 @@ impl TypeResolver {
                 let var_data = self
                     .scope
                     .get(ident)
-                    .ok_or(Error::VariableNotFound {
+                    .ok_or(CompileError::VariableNotFound {
                         span: expr_ast.span.into(),
                     })?
                     .variable(expr_ast.span)?;
@@ -54,6 +56,7 @@ impl TypeResolver {
                     max: target_range.max,
                     width: u8::max(range.width, target_range.width),
                 };
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let expr = ir::IntExpression::Cast {
                     target_min: target_range.min as u64,
                     target_max: target_range.max as u64,
@@ -81,8 +84,8 @@ impl TypeResolver {
             ast::Expression::Identifier(iden) => {
                 let func = self
                     .scope
-                    .get(&iden)
-                    .ok_or(Error::VariableNotFound {
+                    .get(iden)
+                    .ok_or(CompileError::VariableNotFound {
                         span: function.span.into(),
                     })?
                     .function(function.span)?
@@ -94,7 +97,7 @@ impl TypeResolver {
             }
             _ => {
                 let (expr, _) = self.resolve_expression(function)?;
-                Err(Error::InvalidFunctionCallTarget {
+                Err(CompileError::InvalidFunctionCallTarget {
                     span: function.span.into(),
                     type_: expr.type_str(),
                 })
@@ -110,7 +113,7 @@ impl TypeResolver {
         span: span::Span,
     ) -> Result<types::TypedExpression> {
         if func.arguments.len() != arguments.len() {
-            return Err(Error::FunctionArgumentCount {
+            return Err(CompileError::FunctionArgumentCount {
                 got: arguments.len(),
                 expected: func.arguments.len(),
                 span: span.into(),
@@ -177,7 +180,7 @@ impl TypeResolver {
             ast::BinaryOp::FloorDivision => {
                 // div is really just a mul
                 if right_range.contains(0) {
-                    return Err(Error::DivisionByZero {
+                    return Err(CompileError::DivisionByZero {
                         span: right.span.into(),
                         range: right_range.type_str(),
                     });
@@ -193,7 +196,7 @@ impl TypeResolver {
             ast::BinaryOp::Mod => {
                 // a % b = a - b * (a // b)
                 if right_range.contains(0) {
-                    return Err(Error::DivisionByZero {
+                    return Err(CompileError::DivisionByZero {
                         span: right.span.into(),
                         range: right_range.type_str(),
                     });
@@ -224,17 +227,66 @@ impl TypeResolver {
                 )
             }
             ast::BinaryOp::Pow => {
-                return Err(Error::InvalidBinaryOperation {
+                return Err(CompileError::InvalidBinaryOperation {
                     op: ast::BinaryOp::Pow,
                     type_: "int".to_owned(),
                     op_span: span.into(),
                 });
             }
             ast::BinaryOp::And => {
+                if left_range.signed() {
+                    return Err(CompileError::TypeMismatch {
+                        expected: "int[0..]".to_owned(),
+                        actual: left_range.type_str(),
+                        span: left.span.into(),
+                        reason: None,
+                    });
+                }
+                if right_range.signed() {
+                    return Err(CompileError::TypeMismatch {
+                        expected: "int[0..]".to_owned(),
+                        actual: right_range.type_str(),
+                        span: right.span.into(),
+                        reason: None,
+                    });
+                }
+
                 let new_range =
                     types::Range::new(0, i128::min(left_range.max, right_range.max), span)?;
 
                 (new_range, ir::IntBinaryOp::And)
+            }
+            ast::BinaryOp::Or => {
+                if left_range.signed() {
+                    return Err(CompileError::TypeMismatch {
+                        expected: "int[0..]".to_owned(),
+                        actual: left_range.type_str(),
+                        span: left.span.into(),
+                        reason: None,
+                    });
+                }
+                if right_range.signed() {
+                    return Err(CompileError::TypeMismatch {
+                        expected: "int[0..]".to_owned(),
+                        actual: right_range.type_str(),
+                        span: right.span.into(),
+                        reason: None,
+                    });
+                }
+                // Find the min width that can hold both ranges
+                // And this is for the result of the or, so not aligned to 8 bits, we have to use
+                // custom logic.
+
+                let left_width = left_range.max.ilog2() + 1;
+                let right_width = right_range.max.ilog2() + 1;
+
+                let new_range = types::Range::new(
+                    i128::max(left_range.min, right_range.min),
+                    (2i128).pow(u32::max(left_width, right_width)) - 1,
+                    span,
+                )?;
+
+                (new_range, ir::IntBinaryOp::Or)
             }
         };
 

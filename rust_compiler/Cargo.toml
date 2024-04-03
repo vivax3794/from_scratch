@@ -18,3 +18,7 @@ miette = { version = "7.1.0", features = ["fancy"] }
 replace_with = "0.1.7"
 wait-timeout = "0.2.0"
 
+[workspace.metadata.dylint]
+libraries = [
+    { path = "../compiler_lints" }
+]

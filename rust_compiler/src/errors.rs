@@ -9,26 +9,26 @@ use crate::{ast, lexer};
 pub enum TestError {
     /// Error running the test binary
     #[error("Error running the test binary")]
-    TestBinaryError,
+    Binary,
     /// Error compiling the test binary
     #[error("Error compiling the test binary")]
-    TestCompileError {
+    Compile {
         /// The error
         #[diagnostic_source]
         error: miette::Report,
     },
     /// Xfail test compiled successfully
     #[error("Xfail test compiled successfully")]
-    TestXfail,
+    Xfail,
     /// Test binary took too long to run
     #[error("Test binary took too long to run")]
-    TestTimeout,
+    Timeout,
 }
 
 /// Possible errors that can come from the compiler.
 #[derive(Debug, Error, Diagnostic)]
 #[diagnostic()]
-pub enum Error {
+pub enum CompileError {
     /// Test failrue error
     #[error("Test failed")]
     TestFailure {
@@ -54,6 +54,13 @@ pub enum Error {
         /// The character that is unknown
         character: char,
         /// The span of the character
+        #[label]
+        span: miette::SourceSpan,
+    },
+    /// Int overflow error
+    #[error("Int overflow: can not be stored by numeric token")]
+    IntOverflow {
+        /// The span of the value
         #[label]
         span: miette::SourceSpan,
     },
@@ -193,4 +200,4 @@ pub enum Error {
 }
 
 /// A result type with the error type set to the custom error type
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = CompileError> = std::result::Result<T, E>;

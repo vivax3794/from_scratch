@@ -7,7 +7,7 @@ use maplit::hashmap;
 
 use crate::lexer::Token;
 use crate::span::Spanned;
-use crate::{ast, Error, Result};
+use crate::{ast, CompileError, Result};
 
 /// The type of operator
 enum Operator {
@@ -37,6 +37,7 @@ lazy_static! {
         Operator::Cast,
         Operator::Binary(hashmap! {
             Token::And => ast::BinaryOp::And,
+            Token::Or => ast::BinaryOp::Or,
         }),
         Operator::Binary(hashmap! {
             Token::Plus => ast::BinaryOp::Add,
@@ -85,7 +86,7 @@ impl Parser {
             Ok(t.span)
         } else {
             let span = t.span.into();
-            Err(Error::UnexpectedToken {
+            Err(CompileError::UnexpectedToken {
                 token: t.value,
                 expected: format!("{token:?}"),
                 span,
@@ -135,7 +136,7 @@ impl Parser {
             Token::Expose => true,
             Token::Def => false,
             _ => {
-                return Err(Error::UnexpectedToken {
+                return Err(CompileError::UnexpectedToken {
                     token: token.value,
                     expected: "expose or def".to_owned(),
                     span: token.span.into(),
@@ -169,6 +170,7 @@ impl Parser {
         ))
     }
 
+    /// Parses a function argument
     fn parse_argument(&mut self) -> Result<ast::Argument> {
         let mutable = match self.peek() {
             Token::Mut => {
@@ -195,7 +197,7 @@ impl Parser {
         let span = token.span;
         let Token::Ident(ident) = token.value else {
             let span = token.span.into();
-            return Err(Error::UnexpectedToken {
+            return Err(CompileError::UnexpectedToken {
                 token: token.value,
                 expected: "identifier".to_owned(),
                 span,
@@ -231,7 +233,7 @@ impl Parser {
             Token::Number(num) => Ok(token.span.with_value(num)),
             _ => {
                 let span = token.span.into();
-                Err(Error::UnexpectedToken {
+                Err(CompileError::UnexpectedToken {
                     token: token.value,
                     expected: "number".to_owned(),
                     span,
@@ -370,7 +372,7 @@ impl Parser {
             _ => None,
         };
         let result = if let Some(op) = op {
-            let op_span = self.code.pop_front().unwrap().span;
+            let op_span = self.next_spanned().span;
             let expr = self.parse_expr()?;
             ast::Statement::Assign {
                 target,
@@ -514,7 +516,7 @@ impl Parser {
             Token::Ident(ident) => ast::Expression::Identifier(ast::Ident(ident)),
             _ => {
                 let span = token.span.into();
-                return Err(Error::UnexpectedToken {
+                return Err(CompileError::UnexpectedToken {
                     token: token.value,
                     expected: "literal or identifier".to_owned(),
                     span,

@@ -163,6 +163,8 @@ pub enum BinaryOp {
     Pow,
     /// And
     And,
+    /// Or,
+    Or,
 }
 
 /// A comparison operation

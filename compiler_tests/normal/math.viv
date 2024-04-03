@@ -47,5 +47,9 @@ expose main() u8 {
     assert_type x & y = u8;
     assert_type x & 4 = 0..4;
 
+    assert 1 | 2 == 3;
+    assert_type 1 | 2 = 2..3;
+    assert_type 2 | 10 = 10..15;
+
     return 300 - 300;
 }
