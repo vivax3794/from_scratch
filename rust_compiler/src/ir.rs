@@ -181,6 +181,19 @@ pub enum BoolExpression {
     LoadVar(Identifier),
     /// A function call returning a boolean
     Call(Call),
+
+    // We dont do a more generic variant for this like we do for integers
+    // because boolean logic can use short circuiting
+    // so imo it is better to have a separate variant for each operation
+    /// LogicalOperator
+    LogicalOperator {
+        /// The left hand side
+        left: Box<BoolExpression>,
+        /// The right hand side
+        right: Box<BoolExpression>,
+        /// The operation
+        and: bool,
+    },
 }
 
 /// A function call

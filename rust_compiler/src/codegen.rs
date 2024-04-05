@@ -566,6 +566,44 @@ impl<'ctx> CodeGen<'ctx> {
                 let value = self.generate_call(call);
                 value.into_int_value()
             }
+            ir::BoolExpression::LogicalOperator { left, right, and } => {
+                let left = self.generate_bool_expression(left);
+
+                let result = self.context.bool_type();
+                let result = self.builder.build_alloca(result, "Or_Result");
+
+                let current_block = self.builder.get_insert_block().unwrap();
+                let true_block = self.context.insert_basic_block_after(current_block, "True");
+                let false_block = self.context.insert_basic_block_after(true_block, "False");
+                let continue_block = self
+                    .context
+                    .insert_basic_block_after(false_block, "Continue");
+
+                if *and {
+                    self.builder
+                        .build_conditional_branch(left, false_block, true_block);
+                } else {
+                    self.builder
+                        .build_conditional_branch(left, true_block, false_block);
+                }
+
+                self.builder.position_at_end(true_block);
+                self.builder.build_store(
+                    result,
+                    self.context.bool_type().const_int(u64::from(!*and), false),
+                );
+                self.builder.build_unconditional_branch(continue_block);
+
+                self.builder.position_at_end(false_block);
+                let right = self.generate_bool_expression(right);
+                self.builder.build_store(result, right);
+                self.builder.build_unconditional_branch(continue_block);
+
+                self.builder.position_at_end(continue_block);
+                self.builder
+                    .build_load(self.context.bool_type(), result, "Or_Result")
+                    .into_int_value()
+            }
         }
     }
 

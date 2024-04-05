@@ -22,8 +22,7 @@
     clippy::unneeded_field_pattern,
     clippy::use_debug,
     clippy::verbose_file_reads,
-    clippy::expect_used,
-    clippy::unreachable
+    clippy::expect_used
 )]
 #![deny(
     clippy::unwrap_used,

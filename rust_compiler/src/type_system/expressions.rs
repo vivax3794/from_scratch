@@ -146,37 +146,27 @@ impl TypeResolver {
         op: ast::BinaryOp,
         span: span::Span,
     ) -> Result<(types::TypedExpression, types::TypeNarrows)> {
-        let (left_range, left) = self.resolve_expression(left)?.0.int(None)?;
-        let (right_range, right) = self.resolve_expression(right)?.0.int(None)?;
+        let left = self.resolve_expression(left)?;
+        let right = self.resolve_expression(right)?;
 
-        let (mut new_range, op) =
-            resolve_binary_operator_ranges(op, left_range, right_range, span, &right, &left)?;
+        let left_type_str = left.0.type_str();
+        let right_type_str = right.0.type_str();
 
-        let (super_type, mut exprs) = types::cast_to_common_super_type(
-            vec![(left_range, left.value), (right_range, right.value)],
-            new_range.width,
-        );
-        new_range.width = super_type.width;
-
-        // its okay to use swap_remove here because we only have two elements
-        // so after the first one is removed, the second one is at index 0 no matter what
-        let left = exprs.swap_remove(0);
-        let right = exprs.swap_remove(0);
-
-        Ok((
-            types::TypedExpression::Int(
-                new_range,
-                span.with_value(ir::IntExpression::Binary {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(right),
-                    signed: super_type.signed || new_range.signed(),
-                    bounds: None,
-                    width: super_type.width,
-                }),
-            ),
-            types::TypeNarrows::default(),
-        ))
+        match (left.0, right.0) {
+            (
+                types::TypedExpression::Int(left_range, left),
+                types::TypedExpression::Int(right_range, right),
+            ) => resolve_binary_int(left, right, left_range, right_range, op, span),
+            (types::TypedExpression::Bool(left), types::TypedExpression::Bool(right)) => {
+                resolve_binary_bool(left, right, op, span)
+            }
+            _ => Err(CompileError::TypeMismatch {
+                expected: "Same base types.".to_owned(),
+                actual: format!("{left_type_str} and {right_type_str}"),
+                span: span.into(),
+                reason: None,
+            }),
+        }
     }
 
     /// Resolve a comparisson.
@@ -401,6 +391,12 @@ fn resolve_binary_operator_ranges(
 
             (new_range, ir::IntBinaryOp::Or)
         }
+        _ => {
+            return Err(CompileError::InvalidBinaryOperation {
+                type_: "int".to_owned(),
+                op_span: span.into(),
+            })
+        }
     })
 }
 
@@ -455,4 +451,74 @@ fn resolve_literal(
             types::TypeNarrows::default(),
         )),
     }
+}
+
+/// Resolve a binary operator for integers.
+fn resolve_binary_int(
+    left: span::Spanned<ir::IntExpression>,
+    right: span::Spanned<ir::IntExpression>,
+    left_range: types::Range,
+    right_range: types::Range,
+    op: ast::BinaryOp,
+    span: span::Span,
+) -> std::result::Result<(types::TypedExpression, types::TypeNarrows), CompileError> {
+    let (mut new_range, op) =
+        resolve_binary_operator_ranges(op, left_range, right_range, span, &right, &left)?;
+
+    let (super_type, mut exprs) = types::cast_to_common_super_type(
+        vec![(left_range, left.value), (right_range, right.value)],
+        new_range.width,
+    );
+    new_range.width = super_type.width;
+
+    // its okay to use swap_remove here because we only have two elements
+    // so after the first one is removed, the second one is at index 0 no matter what
+    let left = exprs.swap_remove(0);
+    let right = exprs.swap_remove(0);
+
+    Ok((
+        types::TypedExpression::Int(
+            new_range,
+            span.with_value(ir::IntExpression::Binary {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+                signed: super_type.signed || new_range.signed(),
+                bounds: None,
+                width: super_type.width,
+            }),
+        ),
+        types::TypeNarrows::default(),
+    ))
+}
+
+/// Resolve a binary operator for booleans.
+fn resolve_binary_bool(
+    left: span::Spanned<ir::BoolExpression>,
+    right: span::Spanned<ir::BoolExpression>,
+    op: ast::BinaryOp,
+    span: span::Span,
+) -> Result<(types::TypedExpression, types::TypeNarrows)> {
+    let expr = match op {
+        ast::BinaryOp::BoolOr => ir::BoolExpression::LogicalOperator {
+            left: Box::new(left.value),
+            right: Box::new(right.value),
+            and: false,
+        },
+        ast::BinaryOp::BoolAnd => ir::BoolExpression::LogicalOperator {
+            left: Box::new(left.value),
+            right: Box::new(right.value),
+            and: true,
+        },
+        _ => {
+            return Err(CompileError::InvalidBinaryOperation {
+                type_: "bool".to_owned(),
+                op_span: span.into(),
+            })
+        }
+    };
+    Ok((
+        types::TypedExpression::Bool(span.with_value(expr)),
+        types::TypeNarrows::default(),
+    ))
 }

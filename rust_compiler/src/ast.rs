@@ -159,6 +159,10 @@ pub enum BinaryOp {
     And,
     /// Or,
     Or,
+    /// Bool or
+    BoolOr,
+    /// Bool and
+    BoolAnd,
 }
 
 /// A comparison operation

@@ -50,7 +50,9 @@ pub enum Token {
     Comma,
     Arrow,
     And,
+    AndAnd,
     Or,
+    OrOr,
     Eof,
 }
 
@@ -117,8 +119,8 @@ impl Lexer {
                 '<' => self.lex_double(Token::Lt, &[('=', Token::LtEq)]),
                 '>' => self.lex_double(Token::Gt, &[('=', Token::GtEq)]),
                 ',' => self.token(Token::Comma, 1),
-                '&' => self.token(Token::And, 1),
-                '|' => self.token(Token::Or, 1),
+                '&' => self.lex_double(Token::And, &[('&', Token::AndAnd)]),
+                '|' => self.lex_double(Token::Or, &[('|', Token::OrOr)]),
                 c if c.is_ascii_digit() => self.lex_number(c)?,
                 c if c.is_alphabetic() => self.lex_ident(c),
                 _ => {

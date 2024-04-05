@@ -26,6 +26,10 @@ enum Operator {
 lazy_static! {
     /// The operators defined in precedence order
     static ref OPERATORS: Vec<Operator> = vec![
+        Operator::Binary(hashmap! {
+            Token::OrOr => ast::BinaryOp::BoolOr,
+            Token::AndAnd => ast::BinaryOp::BoolAnd,
+        }),
         Operator::Comparison(hashmap! {
             Token::EqEq => ast::ComparissonOp::Eq,
             Token::BangEq => ast::ComparissonOp::Ne,
